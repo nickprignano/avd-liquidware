@@ -2,6 +2,8 @@
 // AzureBastionSubnet, and an optional two-way peering to the network the
 // endpoints live in. The Hub NSG admits only what Stratusphere needs:
 // TCP 443 (Connector ID Key callbacks and the web console) and TCP 22 from Bastion.
+// Egress is explicit, as in avd-landing-zone: the subnet has default outbound
+// access off (Azure is retiring it) and leaves through a NAT Gateway.
 
 param location string
 param tags object
@@ -15,6 +17,24 @@ param deployBastion bool
 param bastionName string
 
 var peer = !empty(peerVirtualNetworkResourceId)
+
+module natGateway 'br/public:avm/res/network/nat-gateway:2.1.1' = {
+  name: 'nat-gateway'
+  params: {
+    name: 'ng-${vnetName}'
+    location: location
+    tags: tags
+    availabilityZone: -1
+    publicIPAddresses: [
+      {
+        name: 'pip-ng-${vnetName}'
+        // The module defaults this IP to zones 1-3, which fails in regions without
+        // availability zones (avd-landing-zone lesson 0001). The appliance is regional.
+        availabilityZones: []
+      }
+    ]
+  }
+}
 
 module hubNsg 'br/public:avm/res/network/network-security-group:0.5.3' = {
   name: 'nsg-hub'
@@ -89,6 +109,8 @@ module vnet 'br/public:avm/res/network/virtual-network:0.10.2' = {
           name: 'snet-stratusphere'
           addressPrefix: hubSubnetPrefix
           networkSecurityGroupResourceId: hubNsg.outputs.resourceId
+          defaultOutboundAccess: false
+          natGatewayResourceId: natGateway.outputs.resourceId
         }
       ],
       deployBastion

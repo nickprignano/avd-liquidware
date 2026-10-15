@@ -61,6 +61,17 @@ Describe 'Hub network exposure' {
   }
 }
 
+Describe 'Egress' {
+  It 'turns default outbound access off and sends the Hub subnet through a regional NAT Gateway' {
+    $vnet = Find-Deployment $script:template 'vnet'
+    $subnets = $vnet['properties']['parameters']['subnets']['value'] | ConvertTo-Json -Depth 20 -Compress
+    $subnets | Should -Match "'defaultOutboundAccess', false\(\)"
+    $subnets | Should -Match 'natGatewayResourceId'
+    $nat = Find-Deployment $script:template 'nat-gateway'
+    $nat['properties']['parameters']['publicIPAddresses']['value'][0]['availabilityZones'] | Should -BeNullOrEmpty
+  }
+}
+
 Describe 'Disclaimer' {
   It 'is at the top of every entry point' {
     $files = @(
