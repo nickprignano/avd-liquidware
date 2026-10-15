@@ -1,0 +1,22 @@
+# Local parameter overrides (the committed .bicepparam files read values from
+# environment variables and hold none themselves)
+parameters/*.local.bicepparam
+
+# Secrets: never commit
+*.pw
+*.secret
+.env
+
+# Bicep build output
+bicep/**/*.json
+parameters/**/*.json
+
+# Assessment output (exports can hold user and machine names)
+output/
+reports/
+
+# OS / editor
+.DS_Store
+.vscode/
+*.swp
+testResults.xml
