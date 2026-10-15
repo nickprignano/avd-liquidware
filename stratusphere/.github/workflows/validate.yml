@@ -13,7 +13,7 @@ permissions:
 
 # Placeholder values so the .bicepparam file compiles offline.
 env:
-  SSUX_HUB_ADMIN_PASSWORD: Placeholder-only-for-build-1!
+  SSUX_ADMIN_PASSWORD: Placeholder-only-for-build-1!
   SSUX_KV_READER_ID: 00000000-0000-0000-0000-000000000001
 
 jobs:

@@ -36,14 +36,14 @@ function Get-SsuxPlanCheck {
 
 function Get-SsuxImagePlanCheck {
   # A Marketplace image without a purchase plan must be deployed without a plan block,
-  # and one with a plan must match it. hub.bicep always sends a plan block.
+  # and one with a plan must match it. appliance.bicep always sends a plan block.
   [CmdletBinding()]
   param(
     $PurchasePlan,
     [Parameter(Mandatory)] [string] $Version
   )
   if (-not $PurchasePlan) {
-    return Get-SsuxCheckResult FAIL 'image-purchase-plan' "Image version $Version has no purchase plan, so the plan block in hub.bicep would be rejected. Report this: the template needs a no-plan path."
+    return Get-SsuxCheckResult FAIL 'image-purchase-plan' "Image version $Version has no purchase plan, so the plan block in appliance.bicep would be rejected. Report this: the template needs a no-plan path."
   }
   Get-SsuxCheckResult PASS 'image-purchase-plan' "Image version $Version carries purchase plan '$($PurchasePlan.Name)'"
 }

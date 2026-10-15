@@ -1,7 +1,8 @@
 // Assessment VNet: one subnet for the Stratusphere appliances, an optional
 // AzureBastionSubnet, and an optional two-way peering to the network the
-// endpoints live in. The Hub NSG admits only what Stratusphere needs:
-// TCP 443 (Connector ID Key callbacks and the web console) and TCP 22 from Bastion.
+// endpoints live in. The NSG admits only what Stratusphere needs:
+// TCP 443 (Connector ID Key callbacks and the web console), TCP 22 from Bastion,
+// and TCP 5432 between the appliances when there is a Database or Collectors.
 // Egress is explicit, as in avd-landing-zone: the subnet has default outbound
 // access off (Azure is retiring it) and leaves through a NAT Gateway.
 
@@ -15,6 +16,9 @@ param callbackSourcePrefixes array
 param peerVirtualNetworkResourceId string
 param deployBastion bool
 param bastionName string
+
+@description('Allow TCP 5432 between the appliances: Collectors and the Hub write to the database.')
+param allowPostgres bool
 
 var peer = !empty(peerVirtualNetworkResourceId)
 
@@ -71,6 +75,23 @@ module hubNsg 'br/public:avm/res/network/network-security-group:0.5.3' = {
                 sourcePortRange: '*'
                 destinationAddressPrefix: hubSubnetPrefix
                 destinationPortRange: '22'
+              }
+            }
+          ]
+        : [],
+      allowPostgres
+        ? [
+            {
+              name: 'Allow-Postgres-Between-Appliances'
+              properties: {
+                priority: 120
+                direction: 'Inbound'
+                access: 'Allow'
+                protocol: 'Tcp'
+                sourceAddressPrefix: hubSubnetPrefix
+                sourcePortRange: '*'
+                destinationAddressPrefix: hubSubnetPrefix
+                destinationPortRange: '5432'
               }
             }
           ]

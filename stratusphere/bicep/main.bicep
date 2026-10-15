@@ -7,14 +7,15 @@
 // optional Azure Bastion for the console, and the Stratusphere Hub appliance
 // from Azure Marketplace. Bring your own Stratusphere license.
 //
-// The Marketplace terms are accepted by scripts/deploy/deploy.sh (or the
-// preflight's -Fix) before this template runs; see docs/marketplace.md.
+// The Marketplace terms are accepted by scripts/ops/Deploy-Stratusphere.ps1,
+// scripts/deploy/deploy.sh or the preflight's -Fix before this template runs;
+// see docs/marketplace.md and docs/appliances.md.
 // =====================================================================
 
 targetScope = 'subscription'
 
 metadata name = 'Stratusphere UX assessment environment'
-metadata description = 'Stratusphere UX Hub appliance in Azure for AVD readiness assessments.'
+metadata description = 'Stratusphere UX appliances (Hub, Database, Collectors) in Azure for AVD readiness assessments.'
 
 // ---------- Core ----------
 @description('Short prefix (lowercase letters/digits, 2-8 chars). Resource names derive from this.')
@@ -28,21 +29,24 @@ param location string = deployment().location
 @description('Extra tags merged onto the resource group and every resource.')
 param tags object = {}
 
-// ---------- Hub appliance image (Azure Marketplace) ----------
-@description('Marketplace publisher of the Stratusphere Hub image.')
-param hubImagePublisher string = 'liquidware'
+// ---------- Appliance images (Azure Marketplace) ----------
+@description('Marketplace publisher of the Stratusphere images.')
+param imagePublisher string = 'liquidware'
 
-@description('Marketplace offer of the Stratusphere Hub image.')
-param hubImageOffer string = 'stratusphere'
+@description('Marketplace offer of the Stratusphere images.')
+param imageOffer string = 'stratusphere'
 
-@description('Marketplace plan (SKU). List the ones available in your region with the preflight or `az vm image list-skus -l <region> -p liquidware -f stratusphere`.')
+@description('Image version for every appliance, or latest.')
+param imageVersion string = 'latest'
+
+// ---------- Hub ----------
+@description('Deploy the Hub. Turned off only to change other roles without touching it.')
+param deployHub bool = true
+
+@description('Marketplace plan (SKU) of the Hub. The preflight lists the plans offered in your region.')
 @minLength(1)
 param hubImagePlan string
 
-@description('Image version, or latest.')
-param hubImageVersion string = 'latest'
-
-// ---------- Hub VM ----------
 @description('Hub VM size. Liquidware lists 4 vCPU and 16 GB as the Hub minimum.')
 param hubVmSize string = 'Standard_D4s_v5'
 
@@ -50,25 +54,67 @@ param hubVmSize string = 'Standard_D4s_v5'
 @minValue(64)
 param hubOsDiskSizeGB int = 128
 
-@description('Local administrator name Azure sets on the appliance.')
-param hubAdminUsername string = 'ssadmin-azure'
+@description('Static private IP of the Hub, inside hubSubnetPrefix (Azure reserves the first four addresses).')
+param hubPrivateIp string = '10.60.0.4'
 
-@description('Local administrator password Azure sets on the appliance. deploy.sh generates one and it is stored in Key Vault.')
+// ---------- Database (optional) ----------
+@description('Deploy the Database appliance. Liquidware advises one above 1,000 Connector ID Keys.')
+param deployDatabase bool = false
+
+@description('Marketplace plan (SKU) of the Database appliance. Required when deployDatabase is true.')
+param databaseImagePlan string = ''
+
+@description('Database VM size. Liquidware lists 4 vCPU and 16 GB as the minimum.')
+param databaseVmSize string = 'Standard_D4s_v5'
+
+@description('OS disk size in GB for the Database appliance.')
+@minValue(64)
+param databaseOsDiskSizeGB int = 256
+
+@description('Static private IP of the Database appliance.')
+param databasePrivateIp string = '10.60.0.5'
+
+// ---------- Collectors (optional) ----------
+@description('Number of Collector appliances (0 for none).')
+@minValue(0)
+@maxValue(4)
+param collectorCount int = 0
+
+@description('Marketplace plan (SKU) of the Collector appliance. Required when collectorCount is above 0.')
+param collectorImagePlan string = ''
+
+@description('Collector VM size. Liquidware lists 2 vCPU and 8 GB as the minimum.')
+param collectorVmSize string = 'Standard_D2s_v5'
+
+@description('OS disk size in GB for each Collector.')
+@minValue(32)
+param collectorOsDiskSizeGB int = 64
+
+@description('Static private IPs of the Collectors, in order. Needs at least collectorCount entries.')
+param collectorPrivateIps array = [
+  '10.60.0.10'
+  '10.60.0.11'
+  '10.60.0.12'
+  '10.60.0.13'
+]
+
+// ---------- Appliance credential ----------
+@description('Local administrator name Azure sets on every appliance.')
+param adminUsername string = 'ssadmin-azure'
+
+@description('Local administrator password Azure sets on every appliance. The deploy scripts generate one, store it in Key Vault and reuse it on later runs.')
 @secure()
-param hubAdminPassword string
+param adminPassword string
 
 // ---------- Network ----------
 @description('Address space of the assessment VNet.')
 param addressPrefix string = '10.60.0.0/24'
 
-@description('Subnet for the Hub (and later the Database appliance and Collectors).')
+@description('Subnet for the appliances: Hub, Database and Collectors.')
 param hubSubnetPrefix string = '10.60.0.0/26'
 
 @description('AzureBastionSubnet prefix (/26 or larger). Used only when deployBastion is true.')
 param bastionSubnetPrefix string = '10.60.0.64/26'
-
-@description('Static private IP of the Hub, inside hubSubnetPrefix (Azure reserves the first four addresses).')
-param hubPrivateIp string = '10.60.0.4'
 
 @description('Source prefixes allowed to reach the Hub on TCP 443: the endpoints running the Connector ID Key and the admins using the web console.')
 param callbackSourcePrefixes array = [
@@ -82,7 +128,7 @@ param peerVirtualNetworkResourceId string = ''
 param deployBastion bool = true
 
 // ---------- Access ----------
-@description('Object ID of the user or group allowed to read the appliance credential from Key Vault (deploy.sh passes the signed-in user).')
+@description('Object ID of the user or group allowed to read the appliance credential from Key Vault (the deploy scripts pass the signed-in user).')
 param keyVaultReaderObjectId string
 
 @description('Principal type of keyVaultReaderObjectId.')
@@ -124,6 +170,8 @@ module network 'modules/network.bicep' = {
     peerVirtualNetworkResourceId: peerVirtualNetworkResourceId
     deployBastion: deployBastion
     bastionName: 'bas-${namePrefix}-stratusphere'
+    // Collectors write to the database: on the Database appliance, or on the Hub without one.
+    allowPostgres: deployDatabase || collectorCount > 0
   }
 }
 
@@ -136,33 +184,85 @@ module keyVault 'modules/keyVault.bicep' = {
     name: 'kv-${namePrefix}-ss-${suffix}'
     readerObjectId: keyVaultReaderObjectId
     readerPrincipalType: keyVaultReaderPrincipalType
-    hubAdminUsername: hubAdminUsername
-    hubAdminPassword: hubAdminPassword
+    adminUsername: adminUsername
+    adminPassword: adminPassword
   }
 }
 
-module hub 'modules/hub.bicep' = {
+module hub 'modules/appliance.bicep' = if (deployHub) {
   name: '${namePrefix}-hub'
   scope: rg
   params: {
-    location: location
-    tags: allTags
+    role: 'hub'
     name: 'vm-${namePrefix}-hub'
     vmSize: hubVmSize
     osDiskSizeGB: hubOsDiskSizeGB
-    subnetResourceId: network.outputs.hubSubnetResourceId
     privateIp: hubPrivateIp
-    imagePublisher: hubImagePublisher
-    imageOffer: hubImageOffer
     imagePlan: hubImagePlan
-    imageVersion: hubImageVersion
-    adminUsername: hubAdminUsername
-    adminPassword: hubAdminPassword
+    location: location
+    tags: allTags
+    subnetResourceId: network.outputs.hubSubnetResourceId
+    imagePublisher: imagePublisher
+    imageOffer: imageOffer
+    imageVersion: imageVersion
+    adminUsername: adminUsername
+    adminPassword: adminPassword
   }
 }
 
+module database 'modules/appliance.bicep' = if (deployDatabase) {
+  name: '${namePrefix}-database'
+  scope: rg
+  params: {
+    role: 'database'
+    name: 'vm-${namePrefix}-db'
+    vmSize: databaseVmSize
+    osDiskSizeGB: databaseOsDiskSizeGB
+    privateIp: databasePrivateIp
+    imagePlan: databaseImagePlan
+    location: location
+    tags: allTags
+    subnetResourceId: network.outputs.hubSubnetResourceId
+    imagePublisher: imagePublisher
+    imageOffer: imageOffer
+    imageVersion: imageVersion
+    adminUsername: adminUsername
+    adminPassword: adminPassword
+  }
+}
+
+module collectors 'modules/appliance.bicep' = [
+  for i in range(0, collectorCount): {
+    name: '${namePrefix}-collector-${i + 1}'
+    scope: rg
+    params: {
+      role: 'collector-${i + 1}'
+      name: 'vm-${namePrefix}-col${i + 1}'
+      vmSize: collectorVmSize
+      osDiskSizeGB: collectorOsDiskSizeGB
+      privateIp: collectorPrivateIps[i]
+      imagePlan: collectorImagePlan
+      location: location
+      tags: allTags
+      subnetResourceId: network.outputs.hubSubnetResourceId
+      imagePublisher: imagePublisher
+      imageOffer: imageOffer
+      imageVersion: imageVersion
+      adminUsername: adminUsername
+      adminPassword: adminPassword
+    }
+  }
+]
+
+var collectorRows = [
+  for i in range(0, collectorCount): { role: 'Collector', name: 'vm-${namePrefix}-col${i + 1}', privateIp: collectorPrivateIps[i] }
+]
+
 output resourceGroupName string = rg.name
-output hubVmName string = hub.outputs.name
-output hubPrivateIp string = hub.outputs.privateIp
 output keyVaultName string = keyVault.outputs.name
 output vnetResourceId string = network.outputs.vnetResourceId
+output appliances array = concat(
+  deployHub ? [{ role: 'Hub', name: 'vm-${namePrefix}-hub', privateIp: hubPrivateIp }] : [],
+  deployDatabase ? [{ role: 'Database', name: 'vm-${namePrefix}-db', privateIp: databasePrivateIp }] : [],
+  collectorRows
+)
