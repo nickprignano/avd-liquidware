@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-AVD readiness assessments with Liquidware Stratusphere UX: Bicep at subscription scope (`bicep/`) deploys the appliances (Hub, optional Database and Collectors) from Azure Marketplace, `scripts/ops/Deploy-Stratusphere.ps1` plans, checks, deploys, fixes and cleans them up by role (`scripts/deploy/deploy.sh` is the bash deploy-only path), and PowerShell scripts for Azure Cloud Shell (`scripts/ops/`) check readiness, roll out the Connector ID Key (`Deploy-CidKey.ps1`) and, later, export assessment data. Conventions follow [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone).
+AVD readiness assessments with Liquidware Stratusphere UX: Bicep at subscription scope (`bicep/`) deploys the appliances (Hub, optional Database and Collectors) from Azure Marketplace, `scripts/ops/Deploy-Stratusphere.ps1` plans, checks, deploys, fixes and cleans them up by role (`scripts/deploy/deploy.sh` is the bash deploy-only path), and PowerShell scripts for Azure Cloud Shell (`scripts/ops/`) check readiness (`Test-StratusphereReadiness.ps1`: quota, policy, network, the endpoints' callback path, and a current-state capture), roll out the Connector ID Key (`Deploy-CidKey.ps1`) and, later, export assessment data. Conventions follow [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone).
 
 ## Validate before pushing
 CI (`.github/workflows/validate.yml`) runs all of these:

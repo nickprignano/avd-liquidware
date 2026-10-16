@@ -61,13 +61,14 @@ Describe 'Roles' {
     $script:main | Should -Match 'imagePlan: databaseImagePlan'
     $script:main | Should -Match 'imagePlan: collectorImagePlan'
   }
-  It 'uses the names and IPs the lifecycle script expects' {
+  It 'uses the names, IPs and address space the scripts expect' {
     Import-Module (Join-Path $script:root 'scripts/ops/StratusphereAppliance.psm1') -Force
     $d = Get-SsuxApplianceDefault
     $t = $script:template
     $t.parameters.hubPrivateIp.defaultValue | Should -Be $d.Ip.Hub
     $t.parameters.databasePrivateIp.defaultValue | Should -Be $d.Ip.Database
     $t.parameters.collectorPrivateIps.defaultValue | Should -Be $d.CollectorIps
+    (Get-Content (Join-Path $script:root 'scripts/ops/Test-StratusphereReadiness.ps1') -Raw) | Should -Match ([regex]::Escape("[string] `$AddressPrefix = '$($t.parameters.addressPrefix.defaultValue)'"))
     $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-hub'"))
     $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-db'"))
     $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-col`${i + 1}'"))
