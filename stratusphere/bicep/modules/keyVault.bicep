@@ -7,10 +7,10 @@ param tags object
 param name string
 param readerObjectId string
 param readerPrincipalType string
-param hubAdminUsername string
+param adminUsername string
 
 @secure()
-param hubAdminPassword string
+param adminPassword string
 
 var keyVaultSecretsUserRoleId = '4633458b-17de-408a-b874-0445c86b69e6'
 
@@ -29,13 +29,13 @@ module vault 'br/public:avm/res/key-vault/vault:0.14.2' = {
     enableVaultForTemplateDeployment: false
     secrets: [
       {
-        name: 'hub-admin-username'
-        value: hubAdminUsername
+        name: 'appliance-admin-username'
+        value: adminUsername
       }
       {
-        name: 'hub-admin-password'
-        value: hubAdminPassword
-        contentType: 'Local administrator Azure set on the Stratusphere Hub appliance'
+        name: 'appliance-admin-password'
+        value: adminPassword
+        contentType: 'Local administrator Azure set on the Stratusphere appliances'
       }
     ]
     roleAssignments: [

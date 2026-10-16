@@ -1,6 +1,7 @@
 # Local parameter overrides (the committed .bicepparam files read values from
 # environment variables and hold none themselves)
 parameters/*.local.bicepparam
+parameters/*.local.json
 
 # Secrets: never commit
 *.pw

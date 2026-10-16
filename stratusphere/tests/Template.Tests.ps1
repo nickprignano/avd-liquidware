@@ -4,7 +4,7 @@
 BeforeAll {
   $script:bicep = (Get-Command bicep -ErrorAction Stop).Source
   $script:root = Split-Path $PSScriptRoot -Parent
-  $env:SSUX_HUB_ADMIN_PASSWORD = 'Placeholder-only-for-build-1!'
+  $env:SSUX_ADMIN_PASSWORD = 'Placeholder-only-for-build-1!'
   $env:SSUX_KV_READER_ID = '00000000-0000-0000-0000-000000000001'
   function Get-Compiled {
     $raw = & $script:bicep build-params (Join-Path $script:root 'parameters/lab.bicepparam') --stdout 2>&1
@@ -20,13 +20,14 @@ BeforeAll {
       }
     }
   }
+  $script:main = Get-Content (Join-Path $script:root 'bicep/main.bicep') -Raw
   $script:compiled = Get-Compiled
   $script:template = $script:compiled.templateJson | ConvertFrom-Json -Depth 100 -AsHashtable
 }
 
 Describe 'Marketplace image' {
   It 'sends a plan block that matches the image reference' {
-    $hub = Find-Deployment $script:template 'vm-hub'
+    $hub = Find-Deployment $script:template "[format('vm-{0}', parameters('role'))]"
     $p = $hub['properties']['parameters']
     $p['plan']['value']['name'] | Should -Be "[parameters('imagePlan')]"
     $p['imageReference']['value']['sku'] | Should -Be "[parameters('imagePlan')]"
@@ -34,6 +35,44 @@ Describe 'Marketplace image' {
     $p['imageReference']['value']['publisher'] | Should -Be "[parameters('imagePublisher')]"
     $p['plan']['value']['product'] | Should -Be "[parameters('imageOffer')]"
     $p['imageReference']['value']['offer'] | Should -Be "[parameters('imageOffer')]"
+  }
+}
+
+Describe 'Roles' {
+  BeforeAll {
+    $env:SSUX_DEPLOY_DATABASE = 'true'; $env:SSUX_COLLECTOR_COUNT = '2'
+    $env:SSUX_DATABASE_PLAN = 'db-plan'; $env:SSUX_COLLECTOR_PLAN = 'col-plan'
+    try { $c = Get-Compiled }
+    finally { $env:SSUX_DEPLOY_DATABASE = ''; $env:SSUX_COLLECTOR_COUNT = ''; $env:SSUX_DATABASE_PLAN = ''; $env:SSUX_COLLECTOR_PLAN = '' }
+    $script:rolesParams = ($c.parametersJson | ConvertFrom-Json).parameters
+  }
+  It 'takes the Database and Collectors from the environment, off by default' {
+    $script:rolesParams.deployDatabase.value | Should -BeTrue
+    $script:rolesParams.collectorCount.value | Should -Be 2
+    $script:rolesParams.databaseImagePlan.value | Should -Be 'db-plan'
+    $p = ((Get-Compiled).parametersJson | ConvertFrom-Json).parameters
+    $p.deployDatabase.value | Should -BeFalse
+    $p.collectorCount.value | Should -Be 0
+  }
+  It 'deploys every role through the one appliance module, so each gets the plan block' {
+    $script:main | Should -Match "module hub 'modules/appliance.bicep'"
+    $script:main | Should -Match "module database 'modules/appliance.bicep'"
+    $script:main | Should -Match "module collectors 'modules/appliance.bicep'"
+    $script:main | Should -Match 'imagePlan: databaseImagePlan'
+    $script:main | Should -Match 'imagePlan: collectorImagePlan'
+  }
+  It 'uses the names, IPs and address space the scripts expect' {
+    Import-Module (Join-Path $script:root 'scripts/ops/StratusphereAppliance.psm1') -Force
+    $d = Get-SsuxApplianceDefault
+    $t = $script:template
+    $t.parameters.hubPrivateIp.defaultValue | Should -Be $d.Ip.Hub
+    $t.parameters.databasePrivateIp.defaultValue | Should -Be $d.Ip.Database
+    $t.parameters.collectorPrivateIps.defaultValue | Should -Be $d.CollectorIps
+    (Get-Content (Join-Path $script:root 'scripts/ops/Test-StratusphereReadiness.ps1') -Raw) | Should -Match ([regex]::Escape("[string] `$AddressPrefix = '$($t.parameters.addressPrefix.defaultValue)'"))
+    $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-hub'"))
+    $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-db'"))
+    $script:main | Should -Match ([regex]::Escape("'vm-`${namePrefix}-col`${i + 1}'"))
+    (Get-Content (Join-Path $script:root 'bicep/modules/appliance.bicep') -Raw) | Should -Match ([regex]::Escape("'stratusphere-role': role"))
   }
 }
 
@@ -59,6 +98,11 @@ Describe 'Hub network exposure' {
     $text | Should -Match "Deny-Other-Inbound"
     $text | Should -Not -Match "Internet"
   }
+  It 'opens TCP 5432 only between appliances, and only with a Database or Collectors' {
+    $net = Get-Content (Join-Path $script:root 'bicep/modules/network.bicep') -Raw
+    $net | Should -Match "(?s)allowPostgres\s*\?\s*\[.*?Allow-Postgres-Between-Appliances.*?sourceAddressPrefix: hubSubnetPrefix.*?destinationAddressPrefix: hubSubnetPrefix.*?destinationPortRange: '5432'"
+    $script:main | Should -Match 'allowPostgres: deployDatabase \|\| collectorCount > 0'
+  }
 }
 
 Describe 'Egress' {
@@ -79,6 +123,11 @@ Describe 'Disclaimer' {
       'scripts/deploy/deploy.sh'
       'scripts/ops/Test-StratusphereReadiness.ps1'
       'scripts/ops/StratusphereReadiness.psm1'
+      'scripts/ops/StratusphereAppliance.psm1'
+      'scripts/ops/Deploy-Stratusphere.ps1'
+      'scripts/ops/CidKeyRollout.psm1'
+      'scripts/ops/Deploy-CidKey.ps1'
+      'scripts/agent/Invoke-CidKeyAction.ps1'
     )
     foreach ($f in $files) {
       (Get-Content (Join-Path $script:root $f) -TotalCount 8) -join "`n" | Should -Match 'Personal project, not for production use' -Because $f
