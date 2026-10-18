@@ -1,12 +1,13 @@
 name: tier
 
-# Static checks for the tier entry point (scripts/) and its tests on every PR and push to main
+# Static checks for the tier entry point (scripts/), its Bicep (profileunity/) and its tests on every PR and push to main
 # that touches them. Nothing here deploys. stratusphere.yml covers stratusphere/.
 on:
   pull_request:
     paths:
       - 'scripts/**'
       - 'tests/**'
+      - 'profileunity/**'
       - 'stratusphere/scripts/ops/StratusphereReadiness.psm1'
       - 'PSScriptAnalyzerSettings.psd1'
       - '.github/workflows/tier.yml'
@@ -16,6 +17,7 @@ on:
     paths:
       - 'scripts/**'
       - 'tests/**'
+      - 'profileunity/**'
       - 'stratusphere/scripts/ops/StratusphereReadiness.psm1'
       - 'PSScriptAnalyzerSettings.psd1'
       - '.github/workflows/tier.yml'
@@ -37,6 +39,21 @@ jobs:
           Set-PSRepository PSGallery -InstallationPolicy Trusted
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
           Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit
+
+      # The template tests compile profileunity/bicep/main.bicep.
+      - name: Install Bicep
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
+          chmod +x "$RUNNER_TEMP/bin/bicep"
+          "$RUNNER_TEMP/bin/bicep" --version
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # bicepconfig.json promotes the security-relevant linter rules to errors.
+      - name: Bicep lint and build
+        run: |
+          bicep lint profileunity/bicep/main.bicep
+          bicep build profileunity/bicep/main.bicep --stdout > /dev/null
 
       - name: Pester
         shell: pwsh
