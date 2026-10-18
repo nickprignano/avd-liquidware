@@ -1,0 +1,31 @@
+{
+  "_comment": "A Standalone avd-landing-zone dev landing zone as Get-AzResourceGroup, Get-AzResource and Get-AzVirtualNetwork return it, reduced to what Get-LwLandingZone reads. Placeholder IDs only.",
+  "ResourceGroup": [
+    "rg-avdlz-dev-network",
+    "rg-avdlz-dev-management",
+    "rg-avdlz-dev-storage",
+    "rg-avdlz-dev-avd",
+    "rg-avdlz-dev-hosts",
+    "NetworkWatcherRG"
+  ],
+  "Resource": [
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-storage/providers/Microsoft.Storage/storageAccounts/stavdlzdevabc123", "Name": "stavdlzdevabc123", "ResourceType": "Microsoft.Storage/storageAccounts", "ResourceGroupName": "rg-avdlz-dev-storage", "Location": "northcentralus", "Kind": "FileStorage" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-storage/providers/Microsoft.RecoveryServices/vaults/rsv-avdlz-dev", "Name": "rsv-avdlz-dev", "ResourceType": "Microsoft.RecoveryServices/vaults", "ResourceGroupName": "rg-avdlz-dev-storage", "Location": "northcentralus" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-management/providers/Microsoft.KeyVault/vaults/kvavdlzdevabc123", "Name": "kvavdlzdevabc123", "ResourceType": "Microsoft.KeyVault/vaults", "ResourceGroupName": "rg-avdlz-dev-management", "Location": "northcentralus" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-management/providers/Microsoft.OperationalInsights/workspaces/log-avdlz-dev", "Name": "log-avdlz-dev", "ResourceType": "Microsoft.OperationalInsights/workspaces", "ResourceGroupName": "rg-avdlz-dev-management", "Location": "northcentralus" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-avd/providers/Microsoft.DesktopVirtualization/hostPools/vdpool-avdlz-dev", "Name": "vdpool-avdlz-dev", "ResourceType": "Microsoft.DesktopVirtualization/hostPools", "ResourceGroupName": "rg-avdlz-dev-avd", "Location": "northcentralus" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-avd/providers/Microsoft.DesktopVirtualization/applicationGroups/vdag-avdlz-dev-desktop", "Name": "vdag-avdlz-dev-desktop", "ResourceType": "Microsoft.DesktopVirtualization/applicationGroups", "ResourceGroupName": "rg-avdlz-dev-avd", "Location": "northcentralus" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net", "Name": "privatelink.file.core.windows.net", "ResourceType": "Microsoft.Network/privateDnsZones", "ResourceGroupName": "rg-avdlz-dev-network", "Location": "global" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/privateDnsZones/privatelink.vaultcore.azure.net", "Name": "privatelink.vaultcore.azure.net", "ResourceType": "Microsoft.Network/privateDnsZones", "ResourceGroupName": "rg-avdlz-dev-network", "Location": "global" },
+    { "ResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/privateDnsZones/privatelink.wvd.microsoft.com", "Name": "privatelink.wvd.microsoft.com", "ResourceType": "Microsoft.Network/privateDnsZones", "ResourceGroupName": "rg-avdlz-dev-network", "Location": "global" }
+  ],
+  "Vnet": {
+    "Id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev",
+    "Location": "northcentralus",
+    "AddressPrefixes": [ "10.100.0.0/22" ],
+    "Subnets": [
+      { "Name": "snet-session-hosts", "AddressPrefix": "10.100.0.0/23" },
+      { "Name": "snet-private-endpoints", "AddressPrefix": "10.100.2.0/27" }
+    ]
+  }
+}

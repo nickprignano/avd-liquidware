@@ -1,0 +1,45 @@
+name: tier
+
+# Static checks for the tier entry point (scripts/) and its tests on every PR and push to main
+# that touches them. Nothing here deploys. stratusphere.yml covers stratusphere/.
+on:
+  pull_request:
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'stratusphere/scripts/ops/StratusphereReadiness.psm1'
+      - 'PSScriptAnalyzerSettings.psd1'
+      - '.github/workflows/tier.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'scripts/**'
+      - 'tests/**'
+      - 'stratusphere/scripts/ops/StratusphereReadiness.psm1'
+      - 'PSScriptAnalyzerSettings.psd1'
+      - '.github/workflows/tier.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scripts:
+    name: Tier script analysis + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Invoke-Pester -Path ./tests -CI -Output Detailed
