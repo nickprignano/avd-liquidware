@@ -50,7 +50,7 @@ param avdServicePrincipalObjectIds array
 @description('Add AzureBastionSubnet and allow 3389 from it to the console and packaging subnets.')
 param deployBastion bool = false
 
-@description('Object ID of the operator running the deploy: the one who uploads installers to media.')
+@description('Object ID of the operator running the deploy: uploads installers to media and may read the console password.')
 param operatorObjectId string
 
 @description('True when the console VM already exists: the deploy then leaves the VM and its password alone (lesson 0002).')
@@ -143,7 +143,8 @@ module consoleAccess 'modules/consoleAccess.bicep' = {
   params: {
     mediaAccountName: media.outputs.accountName
     keyVaultName: tier.outputs.keyVaultName
-    consolePrincipalId: consoleExists ? consolePrincipalId : console.outputs.principalId
+    consolePrincipalId: consoleExists ? consolePrincipalId : console!.outputs.principalId
+    operatorObjectId: operatorObjectId
     licenseStored: licenseStored
   }
 }

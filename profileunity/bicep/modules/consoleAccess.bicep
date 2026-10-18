@@ -1,10 +1,15 @@
 // What the console's own identity may touch (deploy-spec sections 5 and 6.1): read installers
 // in `media`, write compiled configuration to `staging` (never the live config account), and read
-// the ProfileUnity license string, one secret, once the operator has stored it.
+// the ProfileUnity license string, one secret, once the operator has stored it. Also the one way
+// in for a person: the operator may read the console's local admin password, that secret only,
+// from inside the network (the vault is private; docs/console.md).
 
 param mediaAccountName string
 param keyVaultName string
 param consolePrincipalId string
+
+@description('Object ID of the operator running the deploy: reads lw-console-password for the manual console steps (V18).')
+param operatorObjectId string
 
 @description('True once Set-LiquidwareSecret.ps1 has stored lw-licstr; a role can only be scoped to a secret that exists.')
 param licenseStored bool
@@ -43,6 +48,12 @@ resource license 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
   name: 'lw-licstr'
 }
 
+// Written with the console VM (console.bicep), so it exists whenever the console does.
+resource consolePassword 'Microsoft.KeyVault/vaults/secrets@2023-07-01' existing = {
+  parent: keyVault
+  name: 'lw-console-password'
+}
+
 resource consoleMedia 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(media.id, consolePrincipalId, roles.blobDataReader)
   scope: media
@@ -70,5 +81,15 @@ resource consoleLicense 'Microsoft.Authorization/roleAssignments@2022-04-01' = i
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.keyVaultSecretsUser)
     principalId: consolePrincipalId
     principalType: 'ServicePrincipal'
+  }
+}
+
+resource operatorConsolePassword 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(keyVault.id, 'lw-console-password', operatorObjectId, roles.keyVaultSecretsUser)
+  scope: consolePassword
+  properties: {
+    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', roles.keyVaultSecretsUser)
+    principalId: operatorObjectId
+    principalType: 'User'
   }
 }

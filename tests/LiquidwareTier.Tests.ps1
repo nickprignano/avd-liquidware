@@ -176,21 +176,87 @@ Describe 'Get-LwUsersGroup' {
   }
 }
 
+Describe 'Get-LwGeneratedPassword' {
+  BeforeAll { function ConvertTo-Plain($s) { [System.Net.NetworkCredential]::new('', $s).Password } }
+  It 'is a read-only SecureString of 24 characters with all four character classes' {
+    $s = Get-LwGeneratedPassword
+    $s | Should -BeOfType [securestring]
+    $s.IsReadOnly() | Should -BeTrue
+    $p = ConvertTo-Plain $s
+    $p.Length | Should -Be 24
+    $p | Should -MatchExactly '[A-Z]'
+    $p | Should -MatchExactly '[a-z]'
+    $p | Should -Match '[0-9]'
+    $p | Should -Match '[^A-Za-z0-9]'
+  }
+  It 'differs on every call' {
+    @(1..20 | ForEach-Object { ConvertTo-Plain (Get-LwGeneratedPassword) } | Sort-Object -Unique).Count | Should -Be 20
+  }
+}
+
+Describe 'Get-LwTierState' {
+  It 'plans a new console and warns that the license is not stored, when the tier is new' {
+    $s = Get-LwTierState
+    $s.ConsoleExists | Should -BeFalse
+    $s.LicenseStored | Should -BeFalse
+    ($s.Result | Where-Object Check -eq 'console').Status | Should -Be 'INFO'
+    ($s.Result | Where-Object Check -eq 'license-secret').Status | Should -Be 'WARN'
+    ($s.Result | Where-Object Check -eq 'license-secret').Recommendation | Should -Match 'Set-LiquidwareSecret'
+  }
+  It 'keeps an existing console and passes its identity on' {
+    $s = Get-LwTierState -Console ([pscustomobject]@{ Name = 'vm-avdlzlwcon'; PrincipalId = 'principal-1' }) -LicenseSecret ([pscustomobject]@{ Name = 'lw-licstr' })
+    $s.ConsoleExists | Should -BeTrue
+    $s.ConsolePrincipalId | Should -Be 'principal-1'
+    $s.LicenseStored | Should -BeTrue
+    @($s.Result | Where-Object Status -in 'FAIL', 'WARN') | Should -BeNullOrEmpty
+  }
+  It 'fails a console without its identity (ARM omits it)' {
+    $s = Get-LwTierState -Console ([pscustomobject]@{ Name = 'vm-avdlzlwcon' })
+    ($s.Result | Where-Object Check -eq 'console').Status | Should -Be 'FAIL'
+  }
+}
+
 Describe 'Get-LwTemplateParameter' {
+  BeforeAll {
+    $script:newTier = Get-LwTierState
+    function Get-Param([object] $State = $script:newTier, [securestring] $Password = (Get-LwGeneratedPassword)) {
+      Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2' `
+        -OperatorObjectId 'operator-1' -TierState $State -ConsoleAdminPassword $Password
+    }
+  }
   It 'names exactly the parameters of profileunity/bicep/main.bicep' {
-    $p = Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2'
+    $p = Get-Param
     $bicep = Get-Content (Join-Path $script:root 'profileunity/bicep/main.bicep') -Raw
     $declared = @([regex]::Matches($bicep, '(?m)^param (\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'tags' })
     @($p.Keys | Sort-Object) | Should -Be @($declared | Sort-Object)
   }
   It 'fills them from the landing zone' {
-    $p = Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2'
+    $p = Get-Param
     $p.namePrefix | Should -Be 'avdlz'
     $p.environment | Should -Be 'dev'
     $p.spokeAddressPrefixes | Should -Be @('10.100.0.0/22')
     $p.spokePrivateEndpointSubnetPrefix | Should -Be '10.100.2.0/27'
     $p.avdServicePrincipalObjectIds.Count | Should -Be 2
     $p.deployBastion | Should -BeFalse
+    $p.operatorObjectId | Should -Be 'operator-1'
+    $p.autoShutdownTime | Should -Be '1900'
+  }
+  It 'passes a password, as a SecureString, only for a new console' {
+    $new = Get-Param
+    $new.consoleExists | Should -BeFalse
+    $new.consoleAdminPassword | Should -BeOfType [securestring]
+    $existing = Get-Param -State (Get-LwTierState -Console ([pscustomobject]@{ Name = 'vm-avdlzlwcon'; PrincipalId = 'principal-1' }))
+    $existing.consoleExists | Should -BeTrue
+    $existing.consolePrincipalId | Should -Be 'principal-1'
+    $existing.consoleAdminPassword | Should -BeNullOrEmpty
+  }
+  It 'refuses a new console without a password' {
+    { Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2' -OperatorObjectId 'operator-1' -TierState $script:newTier } |
+      Should -Throw '*ConsoleAdminPassword*'
+  }
+  It 'grants the license role only once the secret is stored' {
+    (Get-Param).licenseStored | Should -BeFalse
+    (Get-Param -State (Get-LwTierState -LicenseSecret ([pscustomobject]@{ Name = 'lw-licstr' }))).licenseStored | Should -BeTrue
   }
 }
 
@@ -223,6 +289,62 @@ Describe 'Get-LwWhatIfSummary' {
   }
 }
 
+Describe 'Get-LwMediaBlobName' {
+  It 'puts an installer under component, version and file' {
+    Get-LwMediaBlobName -Component ProfileUnityClient -Version 6.9.5 -FileName 'ProfileUnityClient.exe' | Should -Be 'ProfileUnityClient/6.9.5/ProfileUnityClient.exe'
+  }
+  It 'refuses names that could leave the container path or the URL' {
+    { Get-LwMediaBlobName -Component Other -Version 6.9.5 -FileName a.exe } | Should -Throw '*Unknown media component*'
+    { Get-LwMediaBlobName -Component ProfileUnityClient -Version '6.9.5/../x' -FileName a.exe } | Should -Throw '*Version*'
+    foreach ($bad in '../a.exe', 'a b.exe', '.hidden', 'a?x=1', 'a%2f.exe') {
+      { Get-LwMediaBlobName -Component ProfileUnityClient -Version 6.9.5 -FileName $bad } | Should -Throw '*File name*' -Because $bad
+    }
+  }
+}
+
+Describe 'Get-LwMediaLock' {
+  BeforeAll { $script:hash = 'AB' * 32 }
+  It 'starts a lock with one entry, the hash in lower case' {
+    $l = Get-LwMediaLock -Component ProfileUnityConsole -Version 6.9.5 -FileName console.exe -Sha256 $script:hash -Size 10
+    $l.format | Should -Be 'avd-liquidware-media-lock/v1'
+    @($l.entries).Count | Should -Be 1
+    $l.entries[0].sha256 | Should -Be ('ab' * 32)
+    $l.entries[0].blob | Should -Be 'ProfileUnityConsole/6.9.5/console.exe'
+  }
+  It 'replaces the same component and version, keeps the others, and survives a JSON round trip' {
+    $l = Get-LwMediaLock -Component ProfileUnityConsole -Version 6.9.5 -FileName console.exe -Sha256 $script:hash -Size 10
+    $l = Get-LwMediaLock -Lock $l -Component ProfileUnityClient -Version 6.9.5 -FileName client.exe -Sha256 $script:hash -Size 20
+    $l = ($l | ConvertTo-Json -Depth 5 | ConvertFrom-Json)
+    $l = Get-LwMediaLock -Lock $l -Component ProfileUnityConsole -Version 6.9.5 -FileName console2.exe -Sha256 ('cd' * 32) -Size 30
+    @($l.entries).Count | Should -Be 2
+    ($l.entries | Where-Object component -eq ProfileUnityConsole).file | Should -Be 'console2.exe'
+  }
+  It 'reads a lock without entries (ARM-style omission) and refuses a bad hash or another format' {
+    @((Get-LwMediaLock -Lock ([pscustomobject]@{ format = 'avd-liquidware-media-lock/v1' }) -Component ProfileUnityClient -Version 6.9.5 -FileName c.exe -Sha256 $script:hash -Size 1).entries).Count | Should -Be 1
+    { Get-LwMediaLock -Component ProfileUnityClient -Version 6.9.5 -FileName c.exe -Sha256 'abc' -Size 1 } | Should -Throw '*64 hex*'
+    { Get-LwMediaLock -Lock ([pscustomobject]@{ format = 'v0' }) -Component ProfileUnityClient -Version 6.9.5 -FileName c.exe -Sha256 $script:hash -Size 1 } | Should -Throw '*v0*'
+  }
+  It 'matches the example lock in this repo, which holds no real hash' {
+    $example = Get-Content (Join-Path $script:root 'profileunity/media.lock.example.json') -Raw | ConvertFrom-Json
+    $example.format | Should -Be 'avd-liquidware-media-lock/v1'
+    foreach ($e in $example.entries) {
+      Get-LwMediaBlobName -Component $e.component -Version $e.version -FileName $e.file | Should -Be $e.blob
+      $e.sha256 | Should -Match '^0{64}$'
+    }
+  }
+}
+
+Describe 'Get-LwSecretPath' {
+  It 'writes lw-licstr through the management plane' {
+    $kv = '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-liquidware/providers/Microsoft.KeyVault/vaults/kvavdlzdevlwabcde'
+    Get-LwSecretPath -KeyVaultId $kv -Name lw-licstr | Should -Be "$kv/secrets/lw-licstr?api-version=2023-07-01"
+  }
+  It 'refuses the console password, which only the deploy writes, and anything that is not a vault' {
+    { Get-LwSecretPath -KeyVaultId '/subscriptions/x/resourceGroups/y/providers/Microsoft.KeyVault/vaults/kv1' -Name lw-console-password } | Should -Throw
+    { Get-LwSecretPath -KeyVaultId '/subscriptions/x/resourceGroups/y/providers/Microsoft.Storage/storageAccounts/st1' -Name lw-licstr } | Should -Throw '*Key Vault*'
+  }
+}
+
 Describe 'Get-LwPlanSummary' {
   It 'says nothing for the actions this slice builds' {
     @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Check).Count | Should -Be 0
@@ -236,8 +358,31 @@ Describe 'Get-LwPlanSummary' {
 
 Describe 'Entry points' {
   It 'carry the personal-project notice near the top' {
-    foreach ($f in 'scripts/Deploy-LiquidwareTier.ps1', 'scripts/LiquidwareTier.psm1') {
+    foreach ($f in 'scripts/Deploy-LiquidwareTier.ps1', 'scripts/LiquidwareTier.psm1', 'scripts/Publish-LiquidwareMedia.ps1', 'scripts/Set-LiquidwareSecret.ps1') {
       (Get-Content (Join-Path $script:root $f) -TotalCount 8) -join "`n" | Should -Match 'Personal project, not for production use' -Because $f
     }
+  }
+}
+
+Describe 'Set-LiquidwareSecret.ps1' {
+  BeforeAll {
+    $script:path = Join-Path $script:root 'scripts/Set-LiquidwareSecret.ps1'
+    $script:ast = [System.Management.Automation.Language.Parser]::ParseFile($script:path, [ref] $null, [ref] $null)
+    $script:text = Get-Content $script:path -Raw
+  }
+  It 'takes the value only from a hidden prompt, never as a parameter' {
+    $params = @($script:ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
+    $params | Should -Not -Contain 'Value'
+    $params | Should -Not -Contain 'Secret'
+    @($script:ast.ParamBlock.Parameters | Where-Object { $_.StaticType -in [securestring], [pscredential] }) | Should -BeNullOrEmpty
+    $script:text | Should -Match 'Read-Host [^\r\n]*-AsSecureString'
+  }
+  It 'never prints, logs or exports the value' {
+    $script:text | Should -Not -Match '(Write-\w+|Out-\w+|Set-Content|Add-Content|Export-\w+|Start-Transcript)[^\r\n]*\$(plain|body|secure)\b'
+    $script:text | Should -Not -Match 'ConvertFrom-SecureString'
+  }
+  It 'writes through the management plane, not the vault data plane' {
+    $script:text | Should -Match 'Invoke-AzRestMethod -Method PUT -Path \$secretPath'
+    $script:text | Should -Not -Match 'Set-AzKeyVaultSecret|vault\.azure\.net'
   }
 }

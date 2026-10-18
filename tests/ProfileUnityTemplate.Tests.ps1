@@ -5,8 +5,11 @@
 BeforeAll {
   $script:root = Split-Path $PSScriptRoot -Parent
   $bicep = (Get-Command bicep -ErrorAction Stop).Source
-  $raw = & $bicep build (Join-Path $script:root 'profileunity/bicep/main.bicep') --stdout 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "bicep build failed: $raw" }
+  # Warnings go to stderr; keep them out of the JSON (CI's lint step reports them).
+  $stderr = Join-Path ([System.IO.Path]::GetTempPath()) "bicep-build-$PID.txt"
+  $raw = & $bicep build (Join-Path $script:root 'profileunity/bicep/main.bicep') --stdout 2>$stderr
+  if ($LASTEXITCODE -ne 0) { throw "bicep build failed: $(Get-Content $stderr -Raw)" }
+  Remove-Item $stderr -ErrorAction SilentlyContinue
   $script:main = ($raw -join "`n") | ConvertFrom-Json -Depth 100 -AsHashtable
 
   # Every resource in a template and its nested deployments, with the template it sits in.
@@ -108,12 +111,17 @@ Describe 'Role assignments' {
   It 'gives every assignment a known built-in role, so none goes unchecked' {
     foreach ($a in $script:assignments) { Get-RoleName $a | Should -Not -BeNullOrEmpty -Because $a.Symbol }
   }
-  It 'gives no assignment to a user other than the operator, on media only' {
+  It 'gives no assignment to a user other than the operator: media, and the console password secret only' {
     $users = @($script:assignments | Where-Object { $_.Resource['properties']['principalType'] -eq 'User' })
-    $users.Count | Should -Be 1
-    $users[0].Deployment | Should -Be 'liquidware-media'
-    $users[0].Resource['scope'] | Should -Match "'media'\)\]$"
-    $users[0].Resource['properties']['principalId'] | Should -Be "[parameters('operatorObjectId')]"
+    $users.Count | Should -Be 2
+    foreach ($u in $users) { $u.Resource['properties']['principalId'] | Should -Be "[parameters('operatorObjectId')]" }
+    $onMedia = @($users | Where-Object Deployment -eq 'liquidware-media')
+    $onMedia.Count | Should -Be 1
+    $onMedia[0].Resource['scope'] | Should -Match "'media'\)\]$"
+    $onSecret = @($users | Where-Object Deployment -eq 'liquidware-console-access')
+    $onSecret.Count | Should -Be 1
+    Get-RoleName $onSecret[0] | Should -Be 'Key Vault Secrets User'
+    $onSecret[0].Resource['scope'] | Should -Match "'lw-console-password'\)\]$"
   }
   It 'gives the users group read on the live config account and nothing else (tier N-C1)' {
     $groups = @($script:assignments | Where-Object { $_.Resource['properties']['principalType'] -eq 'Group' })
@@ -216,7 +224,9 @@ Describe 'Console' {
 }
 
 Describe 'Console identity' {
-  BeforeAll { $script:consoleRoles = @(Get-ModuleResource 'liquidware-console-access' | Where-Object Type -eq 'Microsoft.Authorization/roleAssignments') }
+  BeforeAll {
+    $script:consoleRoles = @(Get-ModuleResource 'liquidware-console-access' | Where-Object { $_.Type -eq 'Microsoft.Authorization/roleAssignments' -and $_.Resource['properties']['principalId'] -eq "[parameters('consolePrincipalId')]" })
+  }
   It 'reads media, writes staging and reads one secret, and nothing else' {
     $script:consoleRoles.Count | Should -Be 3
     @($script:assignments | Where-Object { $_.Resource['properties']['principalId'] -eq "[parameters('consolePrincipalId')]" }).Count | Should -Be 3

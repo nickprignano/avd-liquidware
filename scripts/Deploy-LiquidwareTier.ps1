@@ -10,11 +10,12 @@
     Check    what exists and whether it is healthy. Ends with RESULT PASS or FAIL.
     Deploy, Configure, Promote, Fix, Cleanup   built slice by slice (deploy-spec section 15).
 
-  Built so far (slices B1 and B2): the landing zone discovery, the tier address check, for
+  Built so far (slices B1 to B3): the landing zone discovery, the tier address check, for
   Stratusphere the parameters its own scripts get when pointed at this landing zone and, for
   ProfileUnity and FlexApp, a what-if of profileunity/bicep/main.bicep (network, Key Vault,
-  config and packages accounts) that fails on any change to the landing zone outside
-  deploy-spec section 4.
+  config, packages and media accounts, the console VM and its identity's roles) that fails on
+  any change to the landing zone outside deploy-spec section 4. Installers go up with
+  Publish-LiquidwareMedia.ps1, the license string with Set-LiquidwareSecret.ps1.
 
   Read-only: nothing in these slices writes to Azure. What-if needs the Bicep CLI (Cloud Shell has it).
 
@@ -46,7 +47,7 @@ if ($argErrors.Count -gt 0) {
   exit 1
 }
 
-foreach ($m in 'Az.Accounts', 'Az.Resources', 'Az.Network') {
+foreach ($m in 'Az.Accounts', 'Az.Resources', 'Az.Network', 'Az.Compute') {
   if (-not (Get-Module -ListAvailable -Name $m)) {
     Write-Host "Installing $m from the PowerShell Gallery ..."
     Install-Module $m -Scope CurrentUser -Force -AllowClobber
@@ -118,14 +119,42 @@ if ($profileUnity -and $Action -eq 'Plan' -and @($results | Where-Object Status 
   if ($avd.Count -ne 2) {
     Add-Result (Get-LwCheckResult FAIL 'avd-service-principals' "Found $($avd.Count) of the 2 Azure Virtual Desktop service principals." -Recommendation 'Register Microsoft.DesktopVirtualization; the landing zone deploy normally has.' -Category 'Landing zone')
   }
-  if ($users.ObjectId -and $avd.Count -eq 2) {
-    $params = Get-LwTemplateParameter -LandingZone $lz -TierAddressPrefix $TierAddressPrefix -UsersGroupObjectId $users.ObjectId -AvdServicePrincipalObjectId $avd -Bastion:$Bastion
+  # The operator uploads installers to media (Storage Blob Data Contributor there, for them only).
+  $operator = Get-AzADUser -SignedIn -ErrorAction SilentlyContinue
+  if (-not $operator) {
+    Add-Result (Get-LwCheckResult FAIL 'operator' 'The signed-in account is not a user, so it cannot be the media operator.' -Recommendation 'Run from Cloud Shell signed in as yourself.' -Category 'ProfileUnity')
+  }
+  Write-Host 'Reading the console VM and the license secret (management plane) ...'
+  $consoleVm = $null
+  $licenseSecret = $null
+  if ($groups -contains $names.TierGroup) {
+    # Not found is an answer here, and the Az cmdlets throw it as a terminating error.
+    $vm = $(try { Get-AzVM -ResourceGroupName $names.TierGroup -Name $names.ConsoleVm -ErrorAction Stop } catch { $null })
+    if ($vm) { $consoleVm = [pscustomobject]@{ Name = $vm.Name; PrincipalId = $(if ($vm.Identity) { $vm.Identity.PrincipalId } else { '' }) } }
+    $vault = @(Get-AzResource -ResourceGroupName $names.TierGroup -ResourceType 'Microsoft.KeyVault/vaults') | Select-Object -First 1
+    if ($vault) { $licenseSecret = $(try { Get-AzResource -ResourceId "$($vault.ResourceId)/secrets/lw-licstr" -ErrorAction Stop } catch { $null }) }
+  }
+  $state = Get-LwTierState -Console $consoleVm -LicenseSecret $licenseSecret
+  Add-Result $state.Result
+  if ($operator -and $users.ObjectId -and $avd.Count -eq 2 -and @($state.Result | Where-Object Status -eq 'FAIL').Count -eq 0) {
+    # Only a new console gets a password; it lives in this process and in the tier Key Vault, nowhere else.
+    $password = $(if (-not $state.ConsoleExists) { Get-LwGeneratedPassword } else { $null })
+    $params = Get-LwTemplateParameter -LandingZone $lz -TierAddressPrefix $TierAddressPrefix -UsersGroupObjectId $users.ObjectId -AvdServicePrincipalObjectId $avd `
+      -OperatorObjectId $operator.Id -TierState $state -ConsoleAdminPassword $password -Bastion:$Bastion
     $templateParams = @{}
-    foreach ($k in $params.Keys) { $templateParams[$k] = $params[$k] }
+    foreach ($k in $params.Keys) {
+      $v = $params[$k]
+      # The deployment cmdlets take secure parameters as plain strings; convert at the last moment.
+      if ($v -is [securestring]) { $v = [System.Net.NetworkCredential]::new('', $v).Password }
+      elseif ($null -eq $v) { $v = '' }
+      $templateParams[$k] = $v
+    }
     Write-Host 'Running what-if on profileunity/bicep/main.bicep (read-only) ...'
     $whatIf = Get-AzSubscriptionDeploymentWhatIfResult -Name "liquidware-$($names.Base)" -Location $lz.Location `
       -TemplateFile (Join-Path $PSScriptRoot '../profileunity/bicep/main.bicep') -TemplateParameterObject $templateParams
     $changes = @($whatIf.Changes | ForEach-Object { [pscustomobject]@{ ChangeType = "$($_.ChangeType)"; ResourceId = $_.FullyQualifiedResourceId } })
+    $templateParams.Remove('consoleAdminPassword')
+    $password = $null
     Add-Result (Get-LwWhatIfSummary -Change $changes -LandingZone $lz)
   }
 }

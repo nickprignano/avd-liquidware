@@ -1,0 +1,21 @@
+{
+  "format": "avd-liquidware-media-lock/v1",
+  "entries": [
+    {
+      "component": "ProfileUnityClient",
+      "version": "6.9.5",
+      "file": "ProfileUnityClient.exe",
+      "blob": "ProfileUnityClient/6.9.5/ProfileUnityClient.exe",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    },
+    {
+      "component": "ProfileUnityConsole",
+      "version": "6.9.5",
+      "file": "ProfileUnityConsole.exe",
+      "blob": "ProfileUnityConsole/6.9.5/ProfileUnityConsole.exe",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 0
+    }
+  ]
+}
