@@ -22,5 +22,5 @@ shellcheck scripts/deploy/deploy.sh
 - **Assessment exports hold user and machine names.** They go to `output/` (git-ignored), never into the repo or issues.
 - **Never make operators remember secrets.** Generated credentials go to Key Vault, and reruns reuse them (an appliance keeps the password it was created with).
 - **Optional env vars in `.bicepparam`:** `empty(readEnvironmentVariable('X', ''))` guards, because set-but-empty must fall back to the default.
-- **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** No license is chosen yet (Nick decides), so none is claimed. The README warning and the one-line notice at the top of every entry point stay (a test checks entry points).
+- **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** MIT (root LICENSE, Nick chose 2026-10-18). The LICENSE, the README warning and the one-line notice at the top of every entry point stay (a test checks entry points).
 - **American English** in docs, script output and comments.

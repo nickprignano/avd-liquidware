@@ -2,7 +2,7 @@
 .SYNOPSIS
   Preflight for the Stratusphere UX assessment environment: is this subscription, region and
   network ready for the appliances, and will the Connector ID Keys be able to call back?
-  Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+  Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 .DESCRIPTION
   Read-only unless -Fix. Reports PASS, WARN, FAIL, INFO or SKIP per check, by category:

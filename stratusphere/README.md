@@ -8,7 +8,7 @@ Deploy **Liquidware Stratusphere UX** in Azure for an **Azure Virtual Desktop** 
 > - This is my own personal project, built on my own time. It is **not affiliated with, endorsed by or supported by my employer**, and it does not represent my employer's views, products or guidance.
 > - It is **not affiliated with or endorsed by Liquidware** or Microsoft. Stratusphere is Liquidware's product; this repo only automates deploying and using it. **Bring your own Stratusphere license** (Liquidware offers trial licenses).
 > - It is a reference and learning project. **Do not run it in production** or against subscriptions and tenants that matter. Use a dedicated lab subscription.
-> - It is provided **"as is", without warranty of any kind**. No license has been chosen for this repository yet, so all rights are reserved until one is. You are responsible for what it deploys, for the Azure charges it incurs, and for reviewing the code before you run it.
+> - It is provided **"as is", without warranty of any kind**, under the [MIT License](../LICENSE). You are responsible for what it deploys, for the Azure charges it incurs, and for reviewing the code before you run it.
 
 ## Status
 
@@ -103,4 +103,4 @@ shellcheck scripts/deploy/deploy.sh
 
 ## License
 
-No license has been chosen yet; all rights reserved until one is. Stratusphere, Connector ID and Liquidware are trademarks of Liquidware Labs, Inc.; Azure is a trademark of Microsoft.
+[MIT](../LICENSE). Stratusphere, Connector ID and Liquidware are trademarks of Liquidware Labs, Inc.; Azure is a trademark of Microsoft.

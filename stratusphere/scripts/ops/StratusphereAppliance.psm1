@@ -1,7 +1,7 @@
 # Planning behind Deploy-Stratusphere.ps1: which roles to deploy, how healthy the
 # deployed appliances are, and what Fix and Cleanup would do. Every function takes data
 # already read from Azure and returns objects, so it is tested offline.
-# Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+# Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 # Defaults that must match bicep/main.bicep (tests/Template.Tests.ps1 checks them).
 $script:defaultIp = @{ Hub = '10.60.0.4'; Database = '10.60.0.5' }
