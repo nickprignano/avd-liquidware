@@ -15,7 +15,7 @@ pwsh -c "Invoke-Pester -Path ./tests -CI"
 - **Checks are pure functions** in `scripts/LiquidwareTier.psm1` (prefix `Lw`), taking data read from Azure, tested offline with fixtures that omit empty properties the way ARM does. Approved verbs: `Get-` for functions that only build data.
 - **No cloud run without a written cost estimate and Nick's go.** Sandbox: Nick's personal subscription, northcentralus, smallest sizes, `Cleanup` right after, teardown evidence. Offline checks first (Pester, what-if).
 - **No Liquidware binaries, license material or customer data in this repo.** Operator output goes to `output/` (git-ignored).
-- **Never make operators remember secrets; secrets never go through chat.** Host scripts take them as Run Command protected parameters.
+- **Never make operators remember secrets; secrets never go through chat.** VMs read secrets with their own managed identities; the operator writes them through the management plane; anything a Run Command must carry goes in protected parameters.
 - **Liquidware is the only partner.** No Nerdio dependency; other vendors only as prior art.
 - **Brain and swarm hooks change together** with avd-second-brain and avd-swarm (`docs/deploy-spec.md` §14).
 - **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** The notice at the top of every entry point stays (a test checks it).
