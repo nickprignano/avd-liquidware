@@ -11,6 +11,7 @@ parameters/*.local.json
 # Bicep build output
 bicep/**/*.json
 parameters/**/*.json
+!parameters/preflight.example.json
 
 # Assessment output (exports can hold user and machine names)
 output/

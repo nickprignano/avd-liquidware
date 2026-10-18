@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Deploys, checks, fixes and cleans up the Stratusphere appliances in Azure: Hub, Database, Collectors.
-  Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE). Not affiliated with the author's employer, with Liquidware or with Microsoft.
+  Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 .DESCRIPTION
   One entry point for every role. -Role picks the appliances; -Action what to do with them:

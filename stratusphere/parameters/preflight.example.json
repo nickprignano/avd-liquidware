@@ -1,0 +1,24 @@
+{
+  "_comment": "Example config for scripts/ops/Test-StratusphereReadiness.ps1 -ConfigPath. Copy it (for example to parameters/preflight.local.json, which is git-ignored), edit, then run. Explicit parameters win. Remove keys you don't use; their checks report SKIP or use the defaults.",
+
+  "Location": "eastus2",
+  "NamePrefix": "ssux",
+  "Role": ["Hub"],
+
+  "HubPlan": "set-the-plan-the-preflight-lists",
+  "HubVmSize": "Standard_D4s_v5",
+
+  "_database": "Add \"Database\" to Role above 1,000 Connector ID Keys, with DatabasePlan.",
+  "DatabasePlan": "",
+  "_collector": "Add \"Collector\" to Role for Collectors, with CollectorPlan and CollectorCount.",
+  "CollectorPlan": "",
+  "CollectorCount": 1,
+
+  "AddressPrefix": "10.60.0.0/24",
+  "PeerVnetId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev",
+
+  "HostPoolName": "hp-avdlz-dev",
+  "HostPoolResourceGroup": "rg-avdlz-dev-avd",
+  "_avdCurrentState": "Optional: a package from github.com/nickprignano/avd-current-state (folder or zip).",
+  "AvdCurrentStatePath": ""
+}

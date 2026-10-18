@@ -1,9 +1,9 @@
-# CLAUDE.md
+# CLAUDE.md (stratusphere/)
 
-AVD readiness assessments with Liquidware Stratusphere UX: Bicep at subscription scope (`bicep/`) deploys the appliances (Hub, optional Database and Collectors) from Azure Marketplace, `scripts/ops/Deploy-Stratusphere.ps1` plans, checks, deploys, fixes and cleans them up by role (`scripts/deploy/deploy.sh` is the bash deploy-only path), and PowerShell scripts for Azure Cloud Shell (`scripts/ops/`) check readiness (`Test-StratusphereReadiness.ps1`: quota, policy, network, the endpoints' callback path, and a current-state capture), roll out the Connector ID Key (`Deploy-CidKey.ps1`) and, later, export assessment data. Conventions follow [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone).
+Everything here lives under `stratusphere/` in avd-liquidware; run the commands below from this folder. Stratusphere UX deployment for AVD readiness assessments: Bicep at subscription scope (`bicep/`) deploys the appliances (Hub, optional Database and Collectors) from Azure Marketplace, `scripts/ops/Deploy-Stratusphere.ps1` plans, checks, deploys, fixes and cleans them up by role (`scripts/deploy/deploy.sh` is the bash deploy-only path), and PowerShell scripts for Azure Cloud Shell (`scripts/ops/`) check readiness (`Test-StratusphereReadiness.ps1`: quota, policy, network, the endpoints' callback path, and a current-state capture), roll out the Connector ID Key (`Deploy-CidKey.ps1`) and, later, export assessment data. Conventions follow [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone).
 
 ## Validate before pushing
-CI (`.github/workflows/validate.yml`) runs all of these:
+CI (`.github/workflows/stratusphere.yml`, at the repo root) runs all of these:
 
 ```bash
 bicep lint bicep/main.bicep
@@ -22,5 +22,5 @@ shellcheck scripts/deploy/deploy.sh
 - **Assessment exports hold user and machine names.** They go to `output/` (git-ignored), never into the repo or issues.
 - **Never make operators remember secrets.** Generated credentials go to Key Vault, and reruns reuse them (an appliance keeps the password it was created with).
 - **Optional env vars in `.bicepparam`:** `empty(readEnvironmentVariable('X', ''))` guards, because set-but-empty must fall back to the default.
-- **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** The LICENSE, the README warning and the one-line notice at the top of every entry point stay (a test checks entry points).
+- **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** No license is chosen yet (Nick decides), so none is claimed. The README warning and the one-line notice at the top of every entry point stay (a test checks entry points).
 - **American English** in docs, script output and comments.

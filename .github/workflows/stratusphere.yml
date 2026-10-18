@@ -1,15 +1,25 @@
-name: validate
+name: stratusphere
 
-# Static checks on every PR and on main. Nothing here deploys.
+# Static checks for stratusphere/ on every PR and push to main that touches it. Nothing here deploys.
 on:
   pull_request:
+    paths:
+      - 'stratusphere/**'
+      - '.github/workflows/stratusphere.yml'
   push:
     branches:
       - main
+    paths:
+      - 'stratusphere/**'
+      - '.github/workflows/stratusphere.yml'
   workflow_dispatch:
 
 permissions:
   contents: read
+
+defaults:
+  run:
+    working-directory: stratusphere
 
 # Placeholder values so the .bicepparam file compiles offline.
 env:
@@ -18,7 +28,7 @@ env:
 
 jobs:
   bicep:
-    name: Bicep lint + build
+    name: Stratusphere Bicep lint + build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,7 +47,7 @@ jobs:
           done
 
   scripts:
-    name: Script analysis + tests
+    name: Stratusphere script analysis + tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
