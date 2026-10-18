@@ -1,3 +1,9 @@
+__pycache__/
+*.pyc
+digest.md
+freshness.md
+gitleaks.json
+gitleaks.log
 # Operator output holds host names; installers' lock files belong in the customer's private repo.
 output/
 media.lock.json

@@ -15,7 +15,7 @@ shellcheck scripts/deploy/deploy.sh
 ```
 
 ## Rules
-- **Real runs are the source of truth.** Much of the appliance's behavior in Azure (first boot, which credential it honors, API coverage) is unverified. When a real run shows something, fix it, add a guard (Pester test or preflight check), and note it in `docs/lessons/`.
+- **Real runs are the source of truth.** Much of the appliance's behavior in Azure (first boot, which credential it honors, API coverage) is unverified. When a real run shows something, fix it, add a guard (Pester test or preflight check), and record the lesson in the knowledge base (`../docs/knowledge/`: the topic page it belongs on, or `troubleshooting/known-errors.yaml`).
 - **No Liquidware binaries or license material in the repo.** The Hub comes from Marketplace; the Connector ID Key installer is fetched from the user's own Hub.
 - **Marketplace images need a matching `plan` block** (`tests/Template.Tests.ps1` guards it). Terms are accepted by `Deploy-Stratusphere.ps1`, `deploy.sh` or the preflight's `-Fix`, per subscription and plan.
 - **Preflight checks are pure functions** in `scripts/ops/StratusphereReadiness.psm1` that take data read from Azure and return results, so they are tested offline. Approved verbs: `Get-` for functions that only build data.

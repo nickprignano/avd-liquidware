@@ -1,0 +1,58 @@
+name: Known error
+description: Add an error and its fix to the troubleshooting catalog.
+title: "Known error: "
+labels: [kb-known-error]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repo is public. Strip API keys, account, org or workspace IDs, user names, domains,
+        emails, IP addresses and secrets from error text. A maintainer reviews every entry first.
+  - type: input
+    id: symptom
+    attributes:
+      label: Symptom
+      description: The exact error text where there is one, with names removed.
+    validations:
+      required: true
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause
+    validations:
+      required: true
+  - type: textarea
+    id: fix
+    attributes:
+      label: Fix
+    validations:
+      required: true
+  - type: input
+    id: source
+    attributes:
+      label: Source
+      description: A KB path under docs/knowledge/ or an https:// link to a doc or issue.
+      placeholder: stratusphere/appliances.md
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      placeholder: Stratusphere 6.7
+  - type: dropdown
+    id: confidence
+    attributes:
+      label: Confidence
+      options:
+        - Fix confirmed in a real run
+        - Fix worked once; the cause is a guess
+    validations:
+      required: true
+  - type: checkboxes
+    id: public-safe
+    attributes:
+      label: Public-safe
+      options:
+        - label: I removed API keys, account and workspace IDs, names, domains, emails, IP addresses and secrets.
+          required: true

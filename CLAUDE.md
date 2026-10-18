@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # CLAUDE.md
 
 avd-liquidware: the optional Liquidware tier for Azure Virtual Desktop, deployed against an existing [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone) landing zone. `stratusphere/` is the Stratusphere UX assessment instrument (its own CLAUDE.md); `scripts/Deploy-LiquidwareTier.ps1` is the one entry point for the tier (ProfileUnity, FlexApp, Stratusphere). Design: `docs/deploy-spec.md` and its red-team review, `docs/deploy-redteam.md`.

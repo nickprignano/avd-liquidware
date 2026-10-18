@@ -1,0 +1,28 @@
+name: kb-prior-art
+
+# Run a prior-art check from the Actions tab: searches the KB, sibling KBs, GitHub repos, code
+# and issues for a topic and writes the report to the job summary.
+
+on:
+  workflow_dispatch:
+    inputs:
+      query:
+        description: What are you about to build? (e.g. "stratusphere hub api")
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  search:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Search
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          QUERY: ${{ inputs.query }}
+        run: python3 scripts/kb/prior_art.py "$QUERY"
