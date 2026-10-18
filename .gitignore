@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+digest.md
+freshness.md
+gitleaks.json
+gitleaks.log

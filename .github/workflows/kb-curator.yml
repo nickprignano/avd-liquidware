@@ -1,0 +1,46 @@
+name: kb-curator
+
+# Weekly digest of new releases, docs and community repos from docs/knowledge/sources.toml,
+# opened as an issue labelled kb-digest. On pull requests that touch the curator it runs as a
+# dry run and writes the digest to the job summary instead.
+
+on:
+  schedule:
+    - cron: "0 13 * * 1" # Mondays 13:00 UTC
+  workflow_dispatch:
+    inputs:
+      since_days:
+        description: Look back this many days
+        default: "8"
+  pull_request:
+    paths:
+      - scripts/kb/**
+      - docs/knowledge/sources.toml
+      - .github/workflows/kb-curator.yml
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Collect
+        id: collect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/kb/curate.py --since-days "${{ inputs.since_days || '8' }}" --output digest.md
+      - name: Job summary
+        run: cat digest.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Open digest issue
+        if: github.event_name != 'pull_request' && steps.collect.outputs.items != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create kb-digest --color 0e8a16 --description "Knowledge base curator digest" --force
+          gh issue create --label kb-digest --title "KB digest: $(date -u +%F)" --body-file digest.md

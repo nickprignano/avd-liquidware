@@ -1,0 +1,64 @@
+name: kb-freshness
+
+# Monthly check for KB pages that need a look: not reviewed in 90 days, still marked unverified,
+# reported broken or outdated in field-reports.yaml, or experts due for re-scoring (with each
+# tracked expert's yield from recent kb-digest issues), and sibling KBs on a different family
+# format version (family.yaml). Keeps one open issue labelled
+# kb-freshness up to date instead of opening a new one each month.
+
+on:
+  schedule:
+    - cron: "0 13 1 * *" # 1st of the month, 13:00 UTC
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: Flag pages not reviewed in this many days
+        default: "90"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/kb/requirements.txt
+      - name: Make sure the KB labels exist
+        # Issue forms only apply labels that exist, so run this workflow once after setup.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create kb-feedback --color 1d76db --description "Knowledge base feedback" --force
+          gh label create kb-known-error --color d93f0b --description "Known error for the troubleshooting catalog" --force
+          gh label create kb-accepted --color 0e8a16 --description "Reviewed; turn into a KB pull request" --force
+          gh label create kb-freshness --color fbca04 --description "KB pages to re-check" --force
+          gh label create kb-source --color 5319e7 --description "Expert or source nominated for the KB to follow" --force
+      - name: Fetch recent digests
+        # For expert yield: which digest items people ticked as worth adding.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh issue list --label kb-digest --state all --limit 30 --json createdAt,body > "$RUNNER_TEMP/digests.json"
+      - name: Collect
+        id: collect
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/kb/freshness.py --max-age-days "${{ inputs.max_age_days || '90' }}" --digests "$RUNNER_TEMP/digests.json" --family --output freshness.md
+      - name: Job summary
+        run: cat freshness.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Open or update the freshness issue
+        if: steps.collect.outputs.items != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          existing=$(gh issue list --label kb-freshness --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue edit "$existing" --body-file freshness.md
+            gh issue comment "$existing" --body "Refreshed on $(date -u +%F)."
+          else
+            gh issue create --label kb-freshness --title "KB freshness check" --body-file freshness.md
+          fi

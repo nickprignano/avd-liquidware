@@ -1,0 +1,49 @@
+name: Suggest an expert to follow
+description: Nominate someone whose public content on this knowledge base's topics the knowledge base should watch.
+title: "KB source: "
+labels: [kb-source]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The knowledge base follows people through free feeds: a blog with RSS, a YouTube channel or a
+        GitHub account. A maintainer scores every nomination with the method in
+        [docs/knowledge/experts.md](../blob/main/docs/knowledge/experts.md), and the result is published.
+        Public professional links only: no emails, phone numbers or other personal details.
+        Nominating yourself is fine.
+  - type: input
+    id: name
+    attributes:
+      label: Name
+      description: As the person publishes it.
+    validations:
+      required: true
+  - type: input
+    id: blog
+    attributes:
+      label: Blog
+      placeholder: https://example.com/blog
+  - type: input
+    id: youtube
+    attributes:
+      label: YouTube channel
+      placeholder: https://www.youtube.com/@example
+  - type: input
+    id: github
+    attributes:
+      label: GitHub username
+      placeholder: octocat
+  - type: textarea
+    id: why
+    attributes:
+      label: Why follow them
+      description: One or two links to their best content on these topics.
+    validations:
+      required: true
+  - type: checkboxes
+    id: public-safe
+    attributes:
+      label: Public-safe
+      options:
+        - label: I only included public professional links, and nothing from an employer, customer or private project.
+          required: true

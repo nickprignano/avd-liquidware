@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "page.schema.json",
+  "title": "KB page front matter",
+  "description": "YAML front matter required at the top of every topic page in docs/knowledge/.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "summary", "topic", "status", "last_reviewed"],
+  "properties": {
+    "title": {"type": "string", "minLength": 3, "description": "Same as the page's H1."},
+    "summary": {"type": "string", "minLength": 10, "maxLength": 200, "description": "One line; used in the KB index and llms.txt."},
+    "topic": {"enum": ["overview", "stratusphere", "azure", "liquidware", "troubleshooting", "roadmap", "curation"]},
+    "status": {
+      "enum": ["verified", "partial", "unverified", "plan"],
+      "description": "verified: checked against a primary source or a real run. partial: some claims are still marked unverified inline. unverified: not yet checked. plan: describes intended work, not facts."
+    },
+    "last_reviewed": {"type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "sources": {
+      "type": "array",
+      "description": "Primary sources not already linked in the body.",
+      "items": {"type": "string", "pattern": "^https://"}
+    },
+    "owner": {"type": "string", "description": "A role or GitHub team, never a personal name or email."}
+  }
+}

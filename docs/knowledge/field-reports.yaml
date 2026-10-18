@@ -1,0 +1,5 @@
+# Field reports: what worked or broke when someone followed the KB.
+# Appended by the kb-feedback workflow from accepted feedback issues. Schema: schema/field-reports.schema.json
+# The monthly freshness check flags pages with unresolved "broke" or "outdated" reports.
+
+reports: []

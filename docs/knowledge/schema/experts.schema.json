@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "experts.schema.json",
+  "title": "Experts study",
+  "description": "People whose public content the KB follows, scored with the method in experts.md. Public professional links only.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["reviewed", "experts"],
+  "properties": {
+    "reviewed": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "When the whole list was last re-scored."},
+    "experts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "affiliation", "status", "found_via", "links"],
+        "properties": {
+          "id": {"type": "string", "pattern": "^[a-z0-9-]+$"},
+          "name": {"type": "string", "description": "Name as the person publishes it."},
+          "affiliation": {
+            "enum": ["independent", "vendor-staff", "other-vendor", "academic", "unknown"],
+            "description": "Only as publicly stated. Used for balance, not scoring."
+          },
+          "status": {
+            "enum": ["nominated", "tracked", "watch", "declined"],
+            "description": "nominated = not scored yet. Otherwise it must match the scores and gates (see experts.md)."
+          },
+          "found_via": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+          "links": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "blog": {"type": "string", "pattern": "^https://"},
+              "feed": {"type": "string", "pattern": "^https://"},
+              "youtube": {"type": "string", "pattern": "^https://"},
+              "github": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"},
+              "x": {"type": "string", "pattern": "^[A-Za-z0-9_]+$", "description": "Handle only; X isn't watched."}
+            }
+          },
+          "identity": {"type": "string", "description": "URL of the person's own profile that links their accounts together."},
+          "latest": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["date", "url"],
+            "properties": {
+              "date": {"type": "string", "pattern": "^\\d{4}-\\d{2}(-\\d{2})?$"},
+              "url": {"type": "string", "pattern": "^https://"}
+            },
+            "description": "Latest post on the KB's topics found."
+          },
+          "evidence": {"type": "array", "items": {"type": "string", "pattern": "^https://"}},
+          "gates": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["original", "recent", "feed", "identity"],
+            "properties": {
+              "original": {"type": "boolean"},
+              "recent": {"type": "boolean"},
+              "feed": {"type": "boolean"},
+              "identity": {"type": "boolean"}
+            }
+          },
+          "scores": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["relevance", "depth", "recency", "track_record", "feedability"],
+            "properties": {
+              "relevance": {"type": "integer", "minimum": 0, "maximum": 3},
+              "depth": {"type": "integer", "minimum": 0, "maximum": 3},
+              "recency": {"type": "integer", "minimum": 0, "maximum": 3},
+              "track_record": {"type": "integer", "minimum": 0, "maximum": 3},
+              "feedability": {"type": "integer", "minimum": 0, "maximum": 3}
+            }
+          },
+          "reviewed": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+          "notes": {"type": "string"},
+          "issue": {"type": "integer", "description": "Nomination issue, if it came from the issue form."}
+        }
+      }
+    }
+  }
+}
