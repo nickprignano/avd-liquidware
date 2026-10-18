@@ -32,3 +32,9 @@ usually sit in.
 ## More Information
 
 The Terraform choice for Nerdio is [nerdio-hcl 0001](https://github.com/nickprignano/nerdio-hcl/blob/main/docs/knowledge/decisions/0001-build-on-nerdio-provider.md).
+
+The tier's own template (`profileunity/bicep/`) uses native resources instead of modules, as a
+named exception: its template tests check every role assignment's scope and principal in the
+compiled template, and module wrappers hide them
+([deploy-spec.md](https://github.com/nickprignano/avd-liquidware/blob/main/docs/deploy-spec.md)
+section 5). The Stratusphere template keeps the modules.

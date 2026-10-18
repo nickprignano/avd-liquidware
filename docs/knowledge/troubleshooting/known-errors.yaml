@@ -11,3 +11,35 @@ errors:
   applies_to: Stratusphere FIT/UX, all versions per the article
   status: unverified
   added: '2026-10-18'
+- id: bicep-network-types-missing
+  symptom: 'Warning BCP081: Resource type "Microsoft.Network/virtualNetworks@2024-05-01" does not have types available'
+  cause: The installed Bicep CLI is older than the API version, so it can't check the resource's properties offline (the template still builds, and a typo would only fail at deploy)
+  fix: Pin an API version the CLI knows (Microsoft.Network 2023-11-01 on Bicep 0.30), or install a newer CLI. CI installs the latest, so a local build can warn where CI doesn't
+  source: https://github.com/nickprignano/avd-liquidware/blob/main/profileunity/bicep/modules/tier.bicep
+  applies_to: Bicep CLI 0.30.23
+  status: verified
+  added: '2026-10-18'
+- id: bicep-resource-id-in-array-loop
+  symptom: 'Error use-resource-id-functions: If property "privateLinkServiceId" represents a resource ID, it must use a symbolic resource reference, be a parameter or start with one of these functions'
+  cause: A resource ID passed through an array variable into a resource loop (for example a list of private endpoints and their targets) is no longer a symbolic reference, and the repo's bicepconfig.json raises this rule to an error
+  fix: Loop over a small module instead, and pass each ID as a module parameter, which the rule accepts (profileunity/bicep/modules/privateEndpoint.bicep)
+  source: https://github.com/nickprignano/avd-liquidware/blob/main/profileunity/bicep/modules/privateEndpoint.bicep
+  applies_to: Bicep CLI 0.30.23 with use-resource-id-functions at error
+  status: verified
+  added: '2026-10-18'
+- id: psscriptanalyzer-non-ascii-without-bom
+  symptom: PSUseBOMForUnicodeEncodedFile from Invoke-ScriptAnalyzer on a script that contains a section sign or an ellipsis
+  cause: The file is UTF-8 without a byte order mark and holds a non-ASCII character, which Windows PowerShell 5.1 would read in the wrong code page
+  fix: Keep scripts ASCII (write "section 4", three dots) rather than adding a BOM
+  source: https://github.com/nickprignano/avd-liquidware/blob/main/CLAUDE.md
+  applies_to: PSScriptAnalyzer 1.x
+  status: verified
+  added: '2026-10-18'
+- id: vm-admin-password-change-on-redeploy
+  symptom: 'PropertyChangeNotAllowed: Changing property ''osProfile.adminPassword'' is not allowed'
+  cause: An incremental redeploy sends a newly generated admin password for a VM that already exists; the password is fixed at creation
+  fix: Generate the password only for a new VM, and deploy the VM resource only when it doesn't exist (the tier's console module has a consoleExists condition); change a password later through the VM's reset, never by redeploy
+  source: https://github.com/nickprignano/avd-liquidware/blob/main/docs/deploy-spec.md
+  applies_to: Azure Resource Manager, Microsoft.Compute/virtualMachines
+  status: unverified
+  added: '2026-10-18'

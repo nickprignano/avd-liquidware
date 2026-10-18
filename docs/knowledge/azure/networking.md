@@ -38,3 +38,17 @@ every VM stopped ([lab-costs.md](lab-costs.md)).
 
 The preflight checks all of this:
 [stratusphere/docs/preflight.md](../../../stratusphere/docs/preflight.md).
+
+## Reaching private endpoints from Cloud Shell
+
+Cloud Shell runs outside your VNets, so it can't reach a storage account or Key Vault that only
+has a private endpoint. A user delegation SAS doesn't help either: the key is requested from the
+blob endpoint itself. The tier works around it three ways
+([deploy-spec.md](https://github.com/nickprignano/avd-liquidware/blob/main/docs/deploy-spec.md),
+sections 5 to 7):
+
+- Secrets are written through the management plane (`Microsoft.KeyVault/vaults/secrets`), which
+  works on a private vault.
+- VMs read installers and secrets with their own managed identities, from inside the network.
+- Anything that must write a private account from outside runs in a short-lived container in a
+  delegated subnet, created by an ARM call that Cloud Shell can make.
