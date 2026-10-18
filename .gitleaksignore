@@ -1,0 +1,3 @@
+# Gitleaks false positives, by fingerprint (commit:file:rule:line). Each needs a reason.
+# Azure's built-in Key Vault Secrets User role definition ID: the same public GUID in every tenant.
+64fb7eb01bf7b842da6ef8212a94fb08b9ecac6b:stratusphere/bicep/modules/keyVault.bicep:generic-api-key:15
