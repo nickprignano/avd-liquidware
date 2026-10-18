@@ -10,10 +10,13 @@
     Check    what exists and whether it is healthy. Ends with RESULT PASS or FAIL.
     Deploy, Configure, Promote, Fix, Cleanup   built slice by slice (deploy-spec section 15).
 
-  Built so far (slice B1): the landing zone discovery, the tier address check and, for
-  Stratusphere, the parameters its own scripts get when pointed at this landing zone.
+  Built so far (slices B1 and B2): the landing zone discovery, the tier address check, for
+  Stratusphere the parameters its own scripts get when pointed at this landing zone and, for
+  ProfileUnity and FlexApp, a what-if of profileunity/bicep/main.bicep (network, Key Vault,
+  config and packages accounts) that fails on any change to the landing zone outside
+  deploy-spec section 4.
 
-  Read-only: nothing in this slice writes to Azure.
+  Read-only: nothing in these slices writes to Azure. What-if needs the Bicep CLI (Cloud Shell has it).
 
 .EXAMPLE
   ./scripts/Deploy-LiquidwareTier.ps1 -NamePrefix avdlz -Environment dev -Component ProfileUnity,FlexApp,Stratusphere
@@ -27,7 +30,10 @@ param(
   [Parameter(Mandatory)] [string[]] $Component,
   [ValidateSet('Plan', 'Check', 'Deploy', 'Configure', 'Promote', 'Fix', 'Cleanup')] [string] $Action = 'Plan',
   [string] $TierAddressPrefix = '10.61.0.0/24',
-  [string] $SubscriptionId = ''
+  [string] $SubscriptionId = '',
+  # Object ID of the landing zone users group, when discovery finds none or several. Never commit it.
+  [string] $UsersGroupId = '',
+  [switch] $Bastion
 )
 
 $ErrorActionPreference = 'Stop'
@@ -95,6 +101,33 @@ if ($Component -contains 'Stratusphere' -and @($lz.Missing).Count -eq 0) {
   $ssux = Get-LwStratusphereArgument -LandingZone $lz
   $line = ($ssux.GetEnumerator() | ForEach-Object { if ($_.Value -is [bool]) { if ($_.Value) { "-$($_.Key)" } } else { "-$($_.Key) $($_.Value)" } }) -join ' '
   Add-Result (Get-LwCheckResult INFO 'stratusphere-arguments' "stratusphere/scripts/ops/Test-StratusphereReadiness.ps1 $line" -Category Stratusphere)
+}
+
+$profileUnity = @($Component | Where-Object { $_ -in 'ProfileUnity', 'FlexApp' }).Count -gt 0
+if ($profileUnity -and $Action -eq 'Plan' -and @($results | Where-Object Status -eq 'FAIL').Count -eq 0) {
+  Write-Host 'Reading the users group and the Azure Virtual Desktop service principals ...'
+  $assignments = @(Get-AzRoleAssignment -Scope $lz.ProfilesAccountId | ForEach-Object {
+      [pscustomobject]@{ ObjectId = $_.ObjectId; ObjectType = $_.ObjectType; RoleDefinitionName = $_.RoleDefinitionName }
+    })
+  $users = Get-LwUsersGroup -RoleAssignment $assignments -Override $UsersGroupId
+  Add-Result $users.Result
+  # Azure Virtual Desktop and Azure Virtual Desktop ARM Provider: Microsoft's application IDs, the same in every tenant.
+  $avd = @('9cdead84-a844-4324-93f2-b2e6bb768d07', '50e95039-b200-4007-bc97-8d5790743a63' | ForEach-Object {
+      (Get-AzADServicePrincipal -ApplicationId $_ -ErrorAction SilentlyContinue).Id
+    } | Where-Object { $_ })
+  if ($avd.Count -ne 2) {
+    Add-Result (Get-LwCheckResult FAIL 'avd-service-principals' "Found $($avd.Count) of the 2 Azure Virtual Desktop service principals." -Recommendation 'Register Microsoft.DesktopVirtualization; the landing zone deploy normally has.' -Category 'Landing zone')
+  }
+  if ($users.ObjectId -and $avd.Count -eq 2) {
+    $params = Get-LwTemplateParameter -LandingZone $lz -TierAddressPrefix $TierAddressPrefix -UsersGroupObjectId $users.ObjectId -AvdServicePrincipalObjectId $avd -Bastion:$Bastion
+    $templateParams = @{}
+    foreach ($k in $params.Keys) { $templateParams[$k] = $params[$k] }
+    Write-Host 'Running what-if on profileunity/bicep/main.bicep (read-only) ...'
+    $whatIf = Get-AzSubscriptionDeploymentWhatIfResult -Name "liquidware-$($names.Base)" -Location $lz.Location `
+      -TemplateFile (Join-Path $PSScriptRoot '../profileunity/bicep/main.bicep') -TemplateParameterObject $templateParams
+    $changes = @($whatIf.Changes | ForEach-Object { [pscustomobject]@{ ChangeType = "$($_.ChangeType)"; ResourceId = $_.FullyQualifiedResourceId } })
+    Add-Result (Get-LwWhatIfSummary -Change $changes -LandingZone $lz)
+  }
 }
 
 Add-Result (Get-LwPlanSummary -Component $Component -Action $Action)

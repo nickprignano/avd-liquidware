@@ -54,6 +54,7 @@ Describe 'Get-LwLandingZone' {
     $lz.ConnectivityMode | Should -Be 'Standalone'
     $lz.Location | Should -Be 'northcentralus'
     $lz.SessionHostSubnetPrefix | Should -Be '10.100.0.0/23'
+    $lz.PrivateEndpointSubnetPrefix | Should -Be '10.100.2.0/27'
     $lz.ProfilesAccountId | Should -Match 'stavdlzdevabc123$'
     $lz.FileDnsZoneId | Should -Match 'privatelink\.file\.'
     $lz.VaultDnsZoneId | Should -Match 'privatelink\.vaultcore\.'
@@ -147,6 +148,78 @@ Describe 'Get-LwStratusphereArgument' {
   It 'only names parameters Test-StratusphereReadiness.ps1 accepts' {
     $params = (Get-Command (Join-Path $script:root 'stratusphere/scripts/ops/Test-StratusphereReadiness.ps1')).Parameters.Keys
     foreach ($k in (Get-LwStratusphereArgument -LandingZone (Get-DevLandingZone)).Keys) { $params | Should -Contain $k }
+  }
+}
+
+Describe 'Get-LwUsersGroup' {
+  BeforeAll {
+    $script:share = 'Storage File Data SMB Share Contributor'
+    function New-Assignment($Id, $Type, $Role) { [pscustomobject]@{ ObjectId = $Id; ObjectType = $Type; RoleDefinitionName = $Role } }
+  }
+  It 'finds the one group with SMB Share Contributor on the profiles account' {
+    $g = Get-LwUsersGroup -RoleAssignment @(
+      New-Assignment 'group-1' 'Group' $script:share
+      New-Assignment 'sp-1' 'ServicePrincipal' $script:share
+      New-Assignment 'group-2' 'Group' 'Reader'
+    )
+    $g.ObjectId | Should -Be 'group-1'
+    $g.Result.Status | Should -Be 'PASS'
+  }
+  It 'fails with none or several, and names the override' {
+    (Get-LwUsersGroup -RoleAssignment @()).Result.Status | Should -Be 'FAIL'
+    $two = Get-LwUsersGroup -RoleAssignment @((New-Assignment 'group-1' 'Group' $script:share), (New-Assignment 'group-2' 'Group' $script:share))
+    $two.ObjectId | Should -BeNullOrEmpty
+    $two.Result.Recommendation | Should -Match '-UsersGroupId'
+  }
+  It 'takes the override as given' {
+    (Get-LwUsersGroup -RoleAssignment @() -Override 'group-9').ObjectId | Should -Be 'group-9'
+  }
+}
+
+Describe 'Get-LwTemplateParameter' {
+  It 'names exactly the parameters of profileunity/bicep/main.bicep' {
+    $p = Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2'
+    $bicep = Get-Content (Join-Path $script:root 'profileunity/bicep/main.bicep') -Raw
+    $declared = @([regex]::Matches($bicep, '(?m)^param (\w+)') | ForEach-Object { $_.Groups[1].Value } | Where-Object { $_ -ne 'tags' })
+    @($p.Keys | Sort-Object) | Should -Be @($declared | Sort-Object)
+  }
+  It 'fills them from the landing zone' {
+    $p = Get-LwTemplateParameter -LandingZone (Get-DevLandingZone) -TierAddressPrefix 10.61.0.0/24 -UsersGroupObjectId 'group-1' -AvdServicePrincipalObjectId 'sp-1', 'sp-2'
+    $p.namePrefix | Should -Be 'avdlz'
+    $p.environment | Should -Be 'dev'
+    $p.spokeAddressPrefixes | Should -Be @('10.100.0.0/22')
+    $p.spokePrivateEndpointSubnetPrefix | Should -Be '10.100.2.0/27'
+    $p.avdServicePrincipalObjectIds.Count | Should -Be 2
+    $p.deployBastion | Should -BeFalse
+  }
+}
+
+Describe 'Get-LwWhatIfSummary' {
+  BeforeAll {
+    $script:sub = '/subscriptions/00000000-0000-0000-0000-000000000000'
+    function New-Change($Type, $Id) { [pscustomobject]@{ ChangeType = $Type; ResourceId = "$script:sub$Id" } }
+  }
+  It 'reports tier resources and the listed landing zone writes as information' {
+    $r = @(Get-LwWhatIfSummary -LandingZone (Get-DevLandingZone) -Change @(
+        New-Change 'Create' '/resourceGroups/rg-avdlz-dev-liquidware'
+        New-Change 'Create' '/resourceGroups/rg-avdlz-dev-liquidware/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev-liquidware'
+        New-Change 'Create' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev/virtualNetworkPeerings/peer-avdlz-dev-to-liquidware'
+        New-Change 'Create' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net/virtualNetworkLinks/link-avdlz-dev-liquidware'
+        New-Change 'NoChange' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev'
+      ))
+    $r.Count | Should -Be 4
+    @($r | Where-Object Status -ne 'INFO').Count | Should -Be 0
+  }
+  It 'fails a change to any other landing zone resource' {
+    $r = Get-LwWhatIfSummary -LandingZone (Get-DevLandingZone) -Change @(New-Change 'Modify' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev')
+    $r.Status | Should -Be 'FAIL'
+    $r.Detail | Should -Match 'outside deploy-spec section 4'
+  }
+  It 'fails any delete, even in the tier' {
+    (Get-LwWhatIfSummary -LandingZone (Get-DevLandingZone) -Change @(New-Change 'Delete' '/resourceGroups/rg-avdlz-dev-liquidware/providers/Microsoft.KeyVault/vaults/kvx')).Status | Should -Be 'FAIL'
+  }
+  It 'does not let a look-alike peering through' {
+    (Get-LwWhatIfSummary -LandingZone (Get-DevLandingZone) -Change @(New-Change 'Create' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev/virtualNetworkPeerings/peer-avdlz-dev-to-liquidware-2')).Status | Should -Be 'FAIL'
   }
 }
 

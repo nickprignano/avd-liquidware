@@ -2,7 +2,7 @@
 
 - **Status:** Proposed (see [decision AL-0002](decisions/AL-0002-automated-deployment.md)). Red-teamed twice in [deploy-redteam.md](deploy-redteam.md); every finding is folded in below and tagged with its ID (D-C1, D-H2, DN-C1, …).
 - **Date:** 2026-10-18
-- **Builds on:** the tier spec, [spec.md](https://github.com/nickprignano/avd-liquidware/blob/claude/initial-spec/docs/spec.md) (decision AL-0001, PR #1), which decides *what* the tier is: FSLogix stays the container, ProfileUnity adds Portability and user environment management, FlexApp goes through AVD app attach with one assignment system per app, version floor 6.9.5. This spec decides *how it gets deployed*, end to end, by script. Section references like "tier §4.2" point at spec.md; plain decision and lesson numbers are [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone)'s.
+- **Builds on:** the tier spec, [spec.md](spec.md) (decision AL-0001, PR #1), which decides *what* the tier is: FSLogix stays the container, ProfileUnity adds Portability and user environment management, FlexApp goes through AVD app attach with one assignment system per app, version floor 6.9.5. This spec decides *how it gets deployed*, end to end, by script. Section references like "tier §4.2" point at spec.md; plain decision and lesson numbers are [avd-landing-zone](https://github.com/nickprignano/avd-landing-zone)'s.
 - **Also builds on:** the Stratusphere instrument already in this repo ([stratusphere/](../stratusphere/README.md)), which this spec connects to a landing zone rather than rewrites.
 - **Scope:** ProfileUnity (console, client, configuration), FlexApp (packaging, upload, app attach registration and assignment) and Stratusphere UX (assessment instrument) against an existing avd-landing-zone landing zone. CommandCTRL stays in tier phase L3 and is not part of this spec.
 - **Out of scope:** Nerdio. Liquidware is the only partner of this family and Nerdio variants belong to the separate nerdio-hcl project through shared interfaces (owner's rule, 2026-10-18 20:17). Tier spec §8 predates that rule; this spec has no Nerdio path, and the scripts here are written so a Nerdio scripted action *could* call them, without depending on Nerdio.
@@ -86,7 +86,7 @@ In **HubPeered** mode the tier never creates DNS zones or links; it takes the pl
 
 ## 5. ProfileUnity resources
 
-One deployment, subscription scope, `profileunity/bicep/main.bicep`, pinned Azure Verified Modules like the landing zone. Resource group **`rg-<base>-liquidware`** (one lifecycle, one delete).
+One deployment, subscription scope, `profileunity/bicep/main.bicep`. Native resources, not Azure Verified Modules: the template tests check every role assignment's scope and principal in the compiled template, and module wrappers hide them. Resource group **`rg-<base>-liquidware`** (one lifecycle, one delete).
 
 | Resource | Settings |
 |---|---|
@@ -102,7 +102,7 @@ One deployment, subscription scope, `profileunity/bicep/main.bicep`, pinned Azur
 | Backup | **Off in `dev`** (the sandbox; nothing on the console that a rebuild doesn't restore). In `test` and `prod`, a Recovery Services vault in the tier resource group with an **Enhanced** policy, which Trusted Launch VMs need (the landing zone's default policy is Standard, DN-H6). `Cleanup` stops protection and deletes the backup data first; soft delete keeps the vault for 14 days, recorded in the teardown evidence (fork F3) |
 | Diagnostics | The accounts and the Key Vault to the landing zone's Log Analytics. With `-ApplicationRestrictions`, the tier's own data collection rule `dcr-<base>-liquidware` collects ProfileUnity's restriction events (tier §7) from the hosts it is associated with (§4), and `Check` confirms events arrive (DN-H5) |
 
-**Guards in the template tests** (`profileunity/tests/Template.Tests.ps1`, compiled template, offline):
+**Guards in the template tests** (`tests/ProfileUnityTemplate.Tests.ps1`, compiled template, offline; slice B2 covers the network, Key Vault, config and packages accounts, B3 adds the VM, media and console guards):
 - the profiles account is never in this template except as an `existing` reference and the `portability` share;
 - the live config account has `allowSharedKeyAccess: false`, Entra Kerberos and the landing zone's SMB settings other than multichannel;
 - no user group holds a write role on the live config account, or any role on the packages or media accounts (tier N-C1);
@@ -279,7 +279,7 @@ Each slice is one small PR with offline tests, merged before the next starts. No
 | Slice | What | Tests |
 |---|---|---|
 | **B1** | `scripts/LiquidwareTier.psm1` discovery (`Get-LwLandingZone` over ARM data, names, address overlap), `Deploy-LiquidwareTier.ps1` skeleton with Plan and Check for discovery only, `profileunity/` scaffolding, CI workflow | Pester over fixtures; PSScriptAnalyzer |
-| **B2** | `profileunity/bicep/main.bicep`: RG, VNet, peering, DNS links, Key Vault, config account, packages account, NAT; Plan runs what-if | Template guards (§5) |
+| **B2** | `profileunity/bicep/main.bicep`: RG, VNet, peering, DNS links, Key Vault, config account, packages account, NAT, ops runner identity; Plan runs what-if and fails on any landing zone change outside §4 | Template guards (§5); what-if summary |
 | **B3** | Console VM and `Install-ProfileUnityConsole.ps1` (download, hash, checklist stop until V18); media upload; secrets through the management plane | Template guards; host script grammar checks; IMDS token and hash check |
 | **B4** | Client: `Install-ProfileUnityClient.ps1`, `Sync-LiquidwareHosts.ps1`, drain logic | Host plan and drain decisions; protected parameters |
 | **B5** | Config staging and promote (§7); FlexApp upload, register, assign (§8) | Promote checks, INI overlap, assignment conflicts, cleanup order |

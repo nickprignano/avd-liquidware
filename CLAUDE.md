@@ -6,8 +6,9 @@ avd-liquidware: the optional Liquidware tier for Azure Virtual Desktop, deployed
 CI (`.github/workflows/tier.yml`; `stratusphere.yml` for `stratusphere/`) runs:
 
 ```bash
+bicep lint profileunity/bicep/main.bicep
 pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
-pwsh -c "Invoke-Pester -Path ./tests -CI"
+pwsh -c "Invoke-Pester -Path ./tests -CI"   # the template guards need the Bicep CLI on PATH
 ```
 
 ## Rules

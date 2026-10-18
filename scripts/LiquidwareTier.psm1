@@ -118,9 +118,12 @@ function Get-LwLandingZone {
 
   if (-not $Vnet) { $missing.Add("virtual network $($n.Vnet)") }
   $hostSubnet = $null
+  $endpointSubnet = $null
   if ($Vnet) {
     $hostSubnet = @($Vnet.Subnets | Where-Object { $_ -and $_.Name -eq 'snet-session-hosts' }) | Select-Object -First 1
     if (-not $hostSubnet) { $missing.Add("subnet snet-session-hosts in $($n.Vnet)") }
+    $endpointSubnet = @($Vnet.Subnets | Where-Object { $_ -and $_.Name -eq 'snet-private-endpoints' }) | Select-Object -First 1
+    if (-not $endpointSubnet) { $missing.Add("subnet snet-private-endpoints in $($n.Vnet)") }
   }
   if (-not $profiles) { $missing.Add("profiles storage account (FileStorage) in $($rg.Storage)") }
   if (-not $keyVault) { $missing.Add("Key Vault in $($rg.Management)") }
@@ -137,6 +140,7 @@ function Get-LwLandingZone {
     VnetId             = $(if ($Vnet) { $Vnet.Id } else { $null })
     VnetAddressPrefixes = @($(if ($Vnet) { $Vnet.AddressPrefixes } else { @() }))
     SessionHostSubnetPrefix = $(if ($hostSubnet) { $hostSubnet.AddressPrefix } else { $null })
+    PrivateEndpointSubnetPrefix = $(if ($endpointSubnet) { $endpointSubnet.AddressPrefix } else { $null })
     Peerings           = @($(if ($Vnet) { @($Vnet.Peerings | Where-Object { $_ }) } else { @() }))
     ProfilesAccountId  = $(if ($profiles) { $profiles.ResourceId } else { $null })
     KeyVaultId         = $(if ($keyVault) { $keyVault.ResourceId } else { $null })
@@ -207,6 +211,90 @@ function Get-LwStratusphereArgument {
   }
 }
 
+function Get-LwUsersGroup {
+  # The landing zone's users group: the one group holding SMB Share Contributor on the profiles
+  # account (decision 0005 in avd-landing-zone). RoleAssignment: Get-AzRoleAssignment shape
+  # (ObjectId, ObjectType, RoleDefinitionName, Scope) for the profiles account's scope.
+  [CmdletBinding()]
+  param(
+    [AllowEmptyCollection()] [object[]] $RoleAssignment = @(),
+    [string] $Override = ''
+  )
+  $fix = 'Pass the users group with -UsersGroupId (its object ID; never commit it).'
+  if ($Override) {
+    return [pscustomobject]@{ ObjectId = $Override; Result = (Get-LwCheckResult PASS 'users-group' 'Users group given with -UsersGroupId' -Category 'Landing zone') }
+  }
+  $groups = @($RoleAssignment | Where-Object { $_ -and $_.ObjectType -eq 'Group' -and $_.RoleDefinitionName -eq 'Storage File Data SMB Share Contributor' } |
+      Select-Object -ExpandProperty ObjectId -Unique)
+  if ($groups.Count -eq 1) {
+    return [pscustomobject]@{ ObjectId = $groups[0]; Result = (Get-LwCheckResult PASS 'users-group' 'Users group found: the group with SMB Share Contributor on the profiles account' -Category 'Landing zone') }
+  }
+  $detail = $(if ($groups.Count -eq 0) { 'No group holds SMB Share Contributor on the profiles account.' } else { "$($groups.Count) groups hold SMB Share Contributor on the profiles account; the tier needs one." })
+  [pscustomobject]@{ ObjectId = $null; Result = (Get-LwCheckResult FAIL 'users-group' $detail -Recommendation $fix -Category 'Landing zone') }
+}
+
+function Get-LwTemplateParameter {
+  # The parameters of profileunity/bicep/main.bicep, from the discovered landing zone.
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] $LandingZone,
+    [Parameter(Mandatory)] [string] $TierAddressPrefix,
+    [Parameter(Mandatory)] [string] $UsersGroupObjectId,
+    [Parameter(Mandatory)] [string[]] $AvdServicePrincipalObjectId,
+    [switch] $Bastion
+  )
+  $lz = $LandingZone
+  [ordered]@{
+    location                         = $lz.Location
+    namePrefix                       = $lz.Names.Clean
+    environment                      = ($lz.Names.Base -split '-')[-1]
+    tierAddressPrefix                = $TierAddressPrefix
+    spokeVnetId                      = $lz.VnetId
+    spokeAddressPrefixes             = @($lz.VnetAddressPrefixes)
+    sessionHostSubnetPrefix          = $lz.SessionHostSubnetPrefix
+    spokePrivateEndpointSubnetPrefix = $lz.PrivateEndpointSubnetPrefix
+    fileDnsZoneId                    = $lz.FileDnsZoneId
+    vaultDnsZoneId                   = $lz.VaultDnsZoneId
+    usersGroupObjectId               = $UsersGroupObjectId
+    avdServicePrincipalObjectIds     = @($AvdServicePrincipalObjectId)
+    deployBastion                    = [bool] $Bastion
+  }
+}
+
+function Get-LwWhatIfSummary {
+  # One line per change what-if reports (Get-AzSubscriptionDeploymentWhatIfResult's Changes:
+  # ChangeType, ResourceId), and a FAIL for anything it would delete or for a landing zone
+  # resource it would change other than the writes deploy-spec section 4 lists.
+  [CmdletBinding()]
+  param(
+    [AllowEmptyCollection()] [object[]] $Change = @(),
+    [Parameter(Mandatory)] $LandingZone
+  )
+  $n = $LandingZone.Names
+  $net = "/resourceGroups/$([regex]::Escape($n.ResourceGroups.Network))/providers/Microsoft\.Network"
+  $allowed = @(
+    "$net/virtualNetworks/$([regex]::Escape($n.Vnet))/virtualNetworkPeerings/$([regex]::Escape($n.PeeringToTier))$"
+    "$net/privateDnsZones/[^/]+/virtualNetworkLinks/link-$([regex]::Escape($n.Base))-liquidware$"
+  )
+  foreach ($c in @($Change | Where-Object { $_ })) {
+    $type = "$($c.ChangeType)"
+    if ($type -in 'Ignore', 'NoChange') { continue }
+    $id = "$($c.ResourceId)"
+    $inTier = $id -match "/resourceGroups/$([regex]::Escape($n.TierGroup))(/|$)"
+    $isAllowed = @($allowed | Where-Object { $id -match $_ }).Count -gt 0
+    $short = ($id -split '/providers/')[-1]
+    if ($type -eq 'Delete') {
+      Get-LwCheckResult FAIL 'what-if' "$type $short" -Recommendation 'The tier never deletes on deploy; run Cleanup instead.' -Category 'Plan'
+    }
+    elseif (-not $inTier -and -not $isAllowed) {
+      Get-LwCheckResult FAIL 'what-if' "$type $short (a landing zone resource outside deploy-spec section 4)" -Recommendation 'Stop: this would change the landing zone.' -Category 'Plan'
+    }
+    else {
+      Get-LwCheckResult INFO 'what-if' "$type $short" -Category 'Plan'
+    }
+  }
+}
+
 function Get-LwPlanSummary {
   # What each component would do, for the slice that is built. Unbuilt steps say so.
   [CmdletBinding()]
@@ -221,4 +309,4 @@ function Get-LwPlanSummary {
   }
 }
 
-Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwPlanSummary
+Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwPlanSummary
