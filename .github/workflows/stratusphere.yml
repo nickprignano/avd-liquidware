@@ -1,0 +1,78 @@
+name: stratusphere
+
+# Static checks for stratusphere/ on every PR and push to main that touches it. Nothing here deploys.
+on:
+  pull_request:
+    paths:
+      - 'stratusphere/**'
+      - '.github/workflows/stratusphere.yml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'stratusphere/**'
+      - '.github/workflows/stratusphere.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: stratusphere
+
+# Placeholder values so the .bicepparam file compiles offline.
+env:
+  SSUX_ADMIN_PASSWORD: Placeholder-only-for-build-1!
+  SSUX_KV_READER_ID: 00000000-0000-0000-0000-000000000001
+
+jobs:
+  bicep:
+    name: Stratusphere Bicep lint + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bicep
+        run: az bicep install && az bicep version
+
+      # bicepconfig.json promotes the security-relevant linter rules to errors.
+      - name: Lint and build
+        run: |
+          az bicep lint --file bicep/main.bicep
+          az bicep build --file bicep/main.bicep --stdout > /dev/null
+          for f in parameters/*.bicepparam; do
+            echo "build-params $f"
+            az bicep build-params --file "$f" --stdout > /dev/null
+          done
+
+  scripts:
+    name: Stratusphere script analysis + tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Set-PSRepository PSGallery -InstallationPolicy Trusted
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+          Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit
+
+      # The template tests compile the parameter file.
+      - name: Install Bicep
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl -fsSL -o "$RUNNER_TEMP/bin/bicep" https://github.com/Azure/bicep/releases/latest/download/bicep-linux-x64
+          chmod +x "$RUNNER_TEMP/bin/bicep"
+          "$RUNNER_TEMP/bin/bicep" --version
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Pester
+        shell: pwsh
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Invoke-Pester -Path ./tests -CI -Output Detailed
+
+      - name: shellcheck
+        run: shellcheck scripts/deploy/deploy.sh
