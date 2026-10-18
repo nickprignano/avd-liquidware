@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
   Rolls the Stratusphere Connector ID Key out to Azure VMs: AVD session hosts or any Windows VM.
-  Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+  Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 .DESCRIPTION
   Picks the targets (a host pool, a resource group, a tag or named VMs), skips what can't take
