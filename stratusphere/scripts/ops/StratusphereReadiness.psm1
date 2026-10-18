@@ -1,6 +1,6 @@
 # Checks behind Test-StratusphereReadiness.ps1. The Get-Ssux*Check functions take
 # data already read from Azure and return results, so they are tested offline.
-# Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+# Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 function Get-SsuxCheckResult {
   # One check result. FIXED means -Fix changed something; INFO records state; SKIP means an

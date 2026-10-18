@@ -1,6 +1,6 @@
 # Planning and parsing behind Deploy-CidKey.ps1. Every function takes data already read
 # from Azure (or a Run Command's output) and returns objects, so it is tested offline.
-# Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+# Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 function Get-SsuxCidArgumentError {
   # Values are embedded in the script sent to each machine, so they are validated

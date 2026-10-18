@@ -1,4 +1,4 @@
-# Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
+# Personal project, not for production use. Provided as is, without warranty of any kind (MIT License, see LICENSE at the repo root). Not affiliated with the author's employer, with Liquidware or with Microsoft.
 <#
 .SYNOPSIS
   Runs ON the endpoint: checks, installs, fixes, uninstalls or cleans up the Stratusphere Connector ID Key.
