@@ -22,6 +22,7 @@ stays the profile container. It also keeps a living knowledge base of what we le
 | [scripts/](scripts/Deploy-LiquidwareTier.ps1) | `Deploy-LiquidwareTier.ps1`, the one entry point for the tier (ProfileUnity, FlexApp, Stratusphere) against a landing zone. Built slice by slice; read-only so far |
 | [docs/spec.md](docs/spec.md) | The tier: which product owns what, identity and storage per path, security, cost, phases ([red-team](docs/redteam.md), [decision AL-0001](docs/decisions/AL-0001-optional-tier.md)) |
 | [docs/deploy-spec.md](docs/deploy-spec.md) | How the tier is deployed, end to end, by script ([red-team](docs/deploy-redteam.md), [decision AL-0002](docs/decisions/AL-0002-automated-deployment.md)) |
+| [docs/console.md](docs/console.md) | The ProfileUnity console's manual steps until its silent install is verified (V18) |
 | [docs/knowledge/](docs/knowledge/README.md) | The knowledge base: facts and gotchas with versions, known errors, decision records, and the sources watched to keep it current |
 
 ## The knowledge base

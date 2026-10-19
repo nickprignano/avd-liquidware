@@ -74,6 +74,7 @@ function Get-LwName {
     TierGroup      = "rg-$base-liquidware"
     TierVnet       = "vnet-$base-liquidware"
     PeeringToTier  = "peer-$base-to-liquidware"
+    ConsoleVm      = "vm-$($clean)lwcon"
     StratusphereNamePrefix = $ssux
     StratusphereGroup      = "rg-$ssux-stratusphere"
   }
@@ -233,17 +234,88 @@ function Get-LwUsersGroup {
   [pscustomobject]@{ ObjectId = $null; Result = (Get-LwCheckResult FAIL 'users-group' $detail -Recommendation $fix -Category 'Landing zone') }
 }
 
+function Get-LwGeneratedPassword {
+  # A local admin password for a new VM, built in memory and only ever handed to the template
+  # (which writes it to the tier Key Vault). 24 characters with all four character classes,
+  # well inside Azure's Windows rules (12 to 123 characters, three of four classes).
+  [CmdletBinding()]
+  [OutputType([securestring])]
+  param([ValidateRange(16, 123)] [int] $Length = 24)
+  $classes = @('ABCDEFGHJKLMNPQRSTUVWXYZ', 'abcdefghijkmnopqrstuvwxyz', '23456789', '!#%*-_=+?')
+  $all = -join $classes
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]
+  $chars = [System.Collections.Generic.List[char]]::new()
+  foreach ($c in $classes) { $chars.Add($c[$rng::GetInt32($c.Length)]) }
+  while ($chars.Count -lt $Length) { $chars.Add($all[$rng::GetInt32($all.Length)]) }
+  # Fisher-Yates, so the guaranteed classes aren't always the first four characters.
+  for ($i = $chars.Count - 1; $i -gt 0; $i--) {
+    $j = $rng::GetInt32($i + 1)
+    $t = $chars[$i]; $chars[$i] = $chars[$j]; $chars[$j] = $t
+  }
+  $secure = [securestring]::new()
+  foreach ($ch in $chars) { $secure.AppendChar($ch) }
+  $chars.Clear()
+  $secure.MakeReadOnly()
+  $secure
+}
+
+function Get-LwTierState {
+  # What the tier already has that the template must not redo: the console VM (an existing one
+  # keeps the password it was created with, lesson 0002) and the lw-licstr secret (a role can
+  # only be scoped to a secret that exists).
+  #   Console:       $null, or the VM: Name and PrincipalId (its system-assigned identity).
+  #   LicenseSecret: $null, or the ARM resource Microsoft.KeyVault/vaults/secrets/lw-licstr
+  #                  (management plane: it exists, its value is never read).
+  [CmdletBinding()]
+  param(
+    $Console = $null,
+    $LicenseSecret = $null
+  )
+  $results = @()
+  $principal = $(if ($Console -and $Console.PSObject.Properties['PrincipalId']) { "$($Console.PrincipalId)" } else { '' })
+  if (-not $Console) {
+    $results += Get-LwCheckResult INFO 'console' 'No console VM yet: the deploy creates it, with a password generated now and kept only in the tier Key Vault.' -Category ProfileUnity
+  }
+  elseif (-not $principal) {
+    $results += Get-LwCheckResult FAIL 'console' "$($Console.Name) has no system-assigned identity, so it can't read media or write staging." -Recommendation 'Turn its system-assigned identity back on, or delete the VM so the deploy recreates it.' -Category ProfileUnity
+  }
+  else {
+    $results += Get-LwCheckResult INFO 'console' "$($Console.Name) exists: the deploy leaves the VM and its password alone." -Category ProfileUnity
+  }
+  if ($LicenseSecret) {
+    $results += Get-LwCheckResult PASS 'license-secret' 'lw-licstr is stored in the tier Key Vault.' -Category ProfileUnity
+  }
+  else {
+    $results += Get-LwCheckResult WARN 'license-secret' 'lw-licstr is not stored yet, so the console gets no role on it.' -Recommendation 'Run scripts/Set-LiquidwareSecret.ps1 once the tier is deployed, then Deploy again.' -Category ProfileUnity
+  }
+  [pscustomobject]@{
+    ConsoleExists      = [bool] $Console
+    ConsolePrincipalId = $principal
+    LicenseStored      = [bool] $LicenseSecret
+    Result             = $results
+  }
+}
+
 function Get-LwTemplateParameter {
-  # The parameters of profileunity/bicep/main.bicep, from the discovered landing zone.
+  # The parameters of profileunity/bicep/main.bicep, from the discovered landing zone and the
+  # tier's own state (Get-LwTierState). ConsoleAdminPassword is only for a new console.
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] $LandingZone,
     [Parameter(Mandatory)] [string] $TierAddressPrefix,
     [Parameter(Mandatory)] [string] $UsersGroupObjectId,
     [Parameter(Mandatory)] [string[]] $AvdServicePrincipalObjectId,
+    [Parameter(Mandatory)] [string] $OperatorObjectId,
+    [Parameter(Mandatory)] $TierState,
+    [securestring] $ConsoleAdminPassword = $null,
+    [string] $AutoShutdownTime = '1900',
     [switch] $Bastion
   )
   $lz = $LandingZone
+  if (-not $TierState.ConsoleExists -and -not $ConsoleAdminPassword) {
+    throw 'A new console needs -ConsoleAdminPassword (Get-LwGeneratedPassword).'
+  }
+  if ($AutoShutdownTime -notmatch '^([01]\d|2[0-3])[0-5]\d$') { throw "AutoShutdownTime '$AutoShutdownTime' must be HHmm." }
   [ordered]@{
     location                         = $lz.Location
     namePrefix                       = $lz.Names.Clean
@@ -258,6 +330,13 @@ function Get-LwTemplateParameter {
     usersGroupObjectId               = $UsersGroupObjectId
     avdServicePrincipalObjectIds     = @($AvdServicePrincipalObjectId)
     deployBastion                    = [bool] $Bastion
+    operatorObjectId                 = $OperatorObjectId
+    consoleExists                    = [bool] $TierState.ConsoleExists
+    consolePrincipalId               = "$($TierState.ConsolePrincipalId)"
+    # An existing console keeps its password: the template doesn't deploy the VM or the secret then.
+    consoleAdminPassword             = $(if ($TierState.ConsoleExists) { $null } else { $ConsoleAdminPassword })
+    licenseStored                    = [bool] $TierState.LicenseStored
+    autoShutdownTime                 = $AutoShutdownTime
   }
 }
 
@@ -295,6 +374,67 @@ function Get-LwWhatIfSummary {
   }
 }
 
+$script:MediaComponents = @('ProfileUnityConsole', 'ProfileUnityClient', 'FlexAppPackagingConsole')
+$script:LockFormat = 'avd-liquidware-media-lock/v1'
+
+function Get-LwMediaBlobName {
+  # Where an installer lives in the media container: <component>/<version>/<file> (deploy-spec
+  # section 6.4). Strict, because the name ends up in a URL a host script builds.
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] [string] $Component,
+    [Parameter(Mandatory)] [string] $Version,
+    [Parameter(Mandatory)] [string] $FileName
+  )
+  if ($script:MediaComponents -cnotcontains $Component) { throw "Unknown media component '$Component'. Known: $($script:MediaComponents -join ', ')." }
+  if ($Version -notmatch '^\d+(\.\d+){1,3}$') { throw "Version '$Version' must be numbers and dots, like 6.9.5." }
+  if ($FileName -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$') { throw "File name '$FileName' may hold only letters, digits, dots, hyphens and underscores." }
+  "$Component/$Version/$FileName"
+}
+
+function Get-LwMediaLock {
+  # The lock file (media.lock.json) with one entry added or replaced: component, version, file,
+  # SHA-256 and size. No URLs, no secrets. The lock belongs in the customer's private repo.
+  #   Lock: the parsed existing lock, or $null for the first upload.
+  [CmdletBinding()]
+  param(
+    $Lock = $null,
+    [Parameter(Mandatory)] [string] $Component,
+    [Parameter(Mandatory)] [string] $Version,
+    [Parameter(Mandatory)] [string] $FileName,
+    [Parameter(Mandatory)] [string] $Sha256,
+    [Parameter(Mandatory)] [long] $Size
+  )
+  $blob = Get-LwMediaBlobName -Component $Component -Version $Version -FileName $FileName
+  if ($Sha256 -notmatch '^[0-9a-fA-F]{64}$') { throw 'Sha256 must be 64 hex characters.' }
+  if ($Lock -and $Lock.PSObject.Properties['format'] -and $Lock.format -ne $script:LockFormat) {
+    throw "The existing lock is '$($Lock.format)', not $script:LockFormat."
+  }
+  $kept = @()
+  if ($Lock -and $Lock.PSObject.Properties['entries']) {
+    $kept = @($Lock.entries | Where-Object { $_ -and -not ($_.component -eq $Component -and $_.version -eq $Version) })
+  }
+  $entry = [pscustomobject][ordered]@{ component = $Component; version = $Version; file = $FileName; blob = $blob; sha256 = $Sha256.ToLower(); size = $Size }
+  [pscustomobject][ordered]@{
+    format  = $script:LockFormat
+    entries = @(@($kept) + $entry | Sort-Object component, { [version] $_.version })
+  }
+}
+
+function Get-LwSecretPath {
+  # The ARM path that writes a tier Key Vault secret through the management plane, which works on
+  # a private vault from Cloud Shell (DN-C1). Only the secrets the operator sets are allowed.
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] [string] $KeyVaultId,
+    [Parameter(Mandatory)] [ValidateSet('lw-licstr')] [string] $Name
+  )
+  if ($KeyVaultId -notmatch '^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.KeyVault/vaults/[A-Za-z0-9-]{3,24}$') {
+    throw "Not a Key Vault resource ID: '$KeyVaultId'."
+  }
+  "$KeyVaultId/secrets/$($Name)?api-version=2023-07-01"
+}
+
 function Get-LwPlanSummary {
   # What each component would do, for the slice that is built. Unbuilt steps say so.
   [CmdletBinding()]
@@ -309,4 +449,4 @@ function Get-LwPlanSummary {
   }
 }
 
-Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwPlanSummary
+Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwPlanSummary

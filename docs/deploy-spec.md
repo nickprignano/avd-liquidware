@@ -43,21 +43,20 @@ Forks only Nick can decide (§16): a small change in avd-landing-zone so its hos
 
 ```
 avd-liquidware/
-  scripts/                      shared, PowerShell 7.4, Cloud Shell
+  scripts/                      PowerShell 7.4, Cloud Shell (CI analyzes everything under scripts/)
     Deploy-LiquidwareTier.ps1   the entry point: -Component, -Action
     LiquidwareTier.psm1         pure functions (plans, checks, names), tested offline
-  profileunity/                 ProfileUnity and FlexApp (new, same layout as stratusphere/)
-    bicep/main.bicep            subscription scope: RG, VNet, peering, DNS links, console, storage, Key Vault
-    parameters/*.bicepparam
-    scripts/host/               Windows PowerShell 5.1, run on VMs by Run Command
-      Install-ProfileUnityClient.ps1
+    Set-LiquidwareSecret.ps1, Publish-LiquidwareMedia.ps1, Sync-LiquidwareHosts.ps1,
+    Publish-ProfileUnityConfig.ps1 (starts the ops runner), Publish-FlexAppPackage.ps1, Set-FlexAppAssignment.ps1
+    host/                       Windows PowerShell 5.1, run on VMs by Run Command
       Install-ProfileUnityConsole.ps1
-      Publish-ProfileUnityStaging.ps1    (on the console: compiled INI to the staging share)
-    scripts/ops/                PowerShell 7.4, Cloud Shell
-      Sync-LiquidwareHosts.ps1, Set-LwSecret.ps1, Publish-LiquidwareMedia.ps1,
-      Publish-ProfileUnityConfig.ps1 (starts the ops runner), Publish-FlexAppPackage.ps1, Set-FlexAppAssignment.ps1
-    scripts/runner/             the ops runner's job scripts (bash, Azure CLI image), passed as its command
-    tests/                      Pester: template guards, plans, host script static checks
+      Install-ProfileUnityClient.ps1
+      Publish-ProfileUnityStaging.ps1    (on the console: compiled INI to the staging container)
+    runner/                     the ops runner's job scripts (bash, Azure CLI image), passed as its command
+  profileunity/                 ProfileUnity and FlexApp
+    bicep/main.bicep            subscription scope: RG, VNet, peering, DNS links, console, storage, Key Vault
+    media.lock.example.json     the shape of the customer's media lock (section 6.4), no real hashes
+  tests/                        Pester: template guards, plans, host script static checks
   stratusphere/                 unchanged layout; gains -LandingZone discovery (§9)
 ```
 
@@ -96,7 +95,7 @@ One deployment, subscription scope, `profileunity/bicep/main.bicep`. Native reso
 | Console VM `vm-<prefix>lwcon`, computer name `take('<prefix>lwcon', 15)` (DN-M4) | Windows Server 2025 Datacenter Azure Edition, `Standard_D2as_v5` (V5), Trusted Launch (Secure Boot, vTPM), encryption at host (`Check` verifies the subscription feature), Premium SSD 128 GiB, no public IP, static private IP `10.61.0.4`, system-assigned managed identity. Local admin `lwadmin` with a password generated in memory and written to the tier's Key Vault through the ARM management plane (`Microsoft.KeyVault/vaults/secrets`, which works on a private vault from Cloud Shell, DN-C1); a rerun finds the VM and leaves the password alone, since the VM keeps the one it was created with (lesson 0002). Hosts name the console by its static IP (or a record in a zone linked to the spoke), never by host name: Azure-provided DNS doesn't resolve across a peering (DN-M2). Tagged `liquidware-role: console`. Not Entra-joined in the first slices: it's a server, and nobody signs in to it routinely. In `dev` and `test`, a daily shutdown schedule at the landing zone's auto-shutdown time, because the landing zone's budget Lock only stops session hosts (D-H6) |
 | Key Vault `kv<prefix><env>lw<uniq>` | RBAC, purge protection, private endpoint in `snet-lw-endpoints`, public access off. Holds the console password and the ProfileUnity license string (`lw-licstr`, §10) and nothing else. Both are written through the management plane; only VMs inside the network read them, each with its own identity and a role scoped to that one secret. `Plan` and `Check` find a soft-deleted vault of the same name and offer to recover it, as the landing zone's preflight does (lesson 0022, DN-M3) |
 | Live config account `st<prefix><env>lwc<uniq>` (StorageV2, Standard_LRS) | **Shared key off** (`allowSharedKeyAccess: false`), Entra Kerberos (`AADKERB`), SMB hardened like the profiles account (SMB 3.1.1, Kerberos, AES-256 tickets, AES-128-GCM and AES-256-GCM channels, lesson 0028) **except multichannel**, which only Premium file accounts support (DN-H4), public access off, file private endpoint. One share, `lwconfig`. **Staging is not on this account** (DN-H3): with only live here, every grant is account-scoped and the separation doesn't rest on share-scoped data roles. Users group: **SMB Share Reader**. Ops runner identity: Storage File Data Privileged Contributor. Nothing else. Hosts read it as the user at logon (tier §6 row 2), by its full `<account>.file.core.windows.net` name. Entra Kerberos creates an Entra app for this account, which needs admin consent and must be excluded from Conditional Access policies that require MFA: `Check` runs the landing zone's two checks for it and `Fix` grants the consent (D-H4); `Cleanup` removes that app if it outlives the account (unconfirmed whether Azure removes it) |
-| Media account `st<prefix><env>lwm<uniq>` (StorageV2, Standard_LRS) | Containers `media` (installers) and `staging` (compiled configuration from the console, §7). **Shared key off, anonymous access off, public endpoint on with Entra-only data plane** (a named exception, fork F4: Cloud Shell has no line of sight to private endpoints, D-C4). Operator: Storage Blob Data Contributor on `media`. Console identity: Storage Blob Data Contributor on `staging` only (container scope, which blob roles support). Packaging VM and each session host's system-assigned identity (the Entra join already needs it): Storage Blob Data Reader on `media`, granted by the deploy and the host sync. Ops runner: Reader on `staging`. Never packages |
+| Media account `st<prefix><env>lwm<uniq>` (StorageV2, Standard_LRS) | Containers `media` (installers) and `staging` (compiled configuration from the console, §7). **Shared key off, anonymous access off, public endpoint on with Entra-only data plane** (a named exception, fork F4: Cloud Shell has no line of sight to private endpoints, D-C4). Operator: Storage Blob Data Contributor on `media`. Console identity: Storage Blob Data Reader on `media` (to download its installer) and Storage Blob Data Contributor on `staging`, both at container scope, which blob roles support. Packaging VM and each session host's system-assigned identity (the Entra join already needs it): Storage Blob Data Reader on `media`, granted by the deploy and the host sync. Ops runner: Reader on `staging`. Never packages |
 | Ops runner identity `id-<base>-lw-ops` (user-assigned) | Used only by the on-demand container (§7). The console can't use it: it isn't assigned to the console, and assigning it needs Managed Identity Operator, which the console's identity doesn't have |
 | Packages account `st<prefix><env>lwp<uniq>` (StorageV2, Standard_LRS) | Exactly tier §5.1: the one account with shared key on, app attach images only, share `appattach`, file private endpoint, Reader and Data Access for the *Azure Virtual Desktop* and *Azure Virtual Desktop ARM Provider* service principals. A template test fails if it gains a second share, a blob container or a role for any user group |
 | Backup | **Off in `dev`** (the sandbox; nothing on the console that a rebuild doesn't restore). In `test` and `prod`, a Recovery Services vault in the tier resource group with an **Enhanced** policy, which Trusted Launch VMs need (the landing zone's default policy is Standard, DN-H6). `Cleanup` stops protection and deletes the backup data first; soft delete keeps the vault for 14 days, recorded in the teardown evidence (fork F3) |
@@ -106,7 +105,7 @@ One deployment, subscription scope, `profileunity/bicep/main.bicep`. Native reso
 - the profiles account is never in this template except as an `existing` reference and the `portability` share;
 - the live config account has `allowSharedKeyAccess: false`, Entra Kerberos and the landing zone's SMB settings other than multichannel;
 - no user group holds a write role on the live config account, or any role on the packages or media accounts (tier N-C1);
-- the console identity holds exactly one data role, Blob Data Contributor scoped to the `staging` container;
+- the console identity holds exactly three roles: Blob Data Reader on the `media` container, Blob Data Contributor on the `staging` container, and Key Vault Secrets User on the `lw-licstr` secret only once that secret exists; none on the live config account;
 - the media account has shared key and anonymous access off and two containers;
 - the console and packaging subnets' NSGs deny outbound to the spoke;
 - no public IP, no `0.0.0.0/0` or `Internet` inbound rule, no 3389 without Bastion;
@@ -119,7 +118,7 @@ All host scripts are Windows PowerShell 5.1, no modules (lesson 0011). They take
 
 ### 6.1 Console install
 
-`Install-ProfileUnityConsole.ps1` runs on the console by managed Run Command: downloads the installer from `media` with the console's managed identity (§6.4), checks its SHA-256 against the pin, installs silently, sets the console's deploy path to a local folder (`C:\ProgramData\avd-liquidware\deploy`), reads the license from `lw-licstr` with the console's own identity (a role on that secret only; the value never crosses Cloud Shell, DN-C1), and turns Swagger off. **The silent install switches for the 6.9.5 console are unverified (V18).** Until V18 passes, the script stops after download and hash check and prints the checklist of console steps (`docs/console.md`); everything around the console (network, storage, identity, backup, staging publish) is still automated.
+`Install-ProfileUnityConsole.ps1` runs on the console by managed Run Command: downloads the installer from `media` with the console's managed identity (§6.4), checks its SHA-256 against the pin, installs silently, sets the console's deploy path to a local folder (`C:\ProgramData\avd-liquidware\deploy`), reads the license from `lw-licstr` with the console's own identity (a role on that secret only; the value never crosses Cloud Shell, DN-C1), and turns Swagger off. **The silent install switches for the 6.9.5 console are unverified (V18).** Until V18 passes, the script stops after download and hash check and prints the checklist of console steps (`docs/console.md`) and one `LW-RESULT status=<verified|failed>` line; everything around the console (network, storage, identity, backup, staging publish) is still automated.
 
 ### 6.2 Client install on existing hosts
 
@@ -141,7 +140,7 @@ The landing zone adds hosts on scale-out, image rotation and rebuild, and its ow
 
 ### 6.4 Media without keys or SAS (D-M2, D-C4)
 
-The operator uploads each installer once, from Cloud Shell: `Publish-LiquidwareMedia.ps1 -Path <file> -Component ProfileUnityClient -Version 6.9.5` computes the SHA-256, uploads to `media/<component>/<version>/<file>` with Entra (Storage Blob Data Contributor, the operator's own), and writes `media.lock.json` locally (component, version, file, SHA-256; no URLs, no secrets). The lock file is committed to the customer's private repo, never to this one; this repo has `media.lock.example.json`. At run time the host script gets a token for `https://storage.azure.com/` from the VM's own managed identity (IMDS, which Windows PowerShell 5.1 reaches with `Invoke-RestMethod`), downloads the blob over HTTPS through the NAT Gateway, and refuses it unless the SHA-256 matches the lock file's, which the deploy script passes in. Nothing secret crosses the Run Command for media at all.
+The operator uploads each installer once, from Cloud Shell: `Publish-LiquidwareMedia.ps1 -Path <file> -Component ProfileUnityClient -Version 6.9.5` computes the SHA-256, uploads to `media/<component>/<version>/<file>` with Entra (Storage Blob Data Contributor, the operator's own), and writes `output/media.lock.json` (format `avd-liquidware-media-lock/v1`: component, version, file, blob path, SHA-256 and size; no URLs, no secrets). A version already uploaded is never overwritten without `-Force`. The lock file is committed to the customer's private repo, never to this one; this repo has `profileunity/media.lock.example.json`. Components: `ProfileUnityConsole`, `ProfileUnityClient`, `FlexAppPackagingConsole`. At run time the host script gets a token for `https://storage.azure.com/` from the VM's own managed identity (IMDS, which Windows PowerShell 5.1 reaches with `Invoke-RestMethod`), downloads the blob over HTTPS through the NAT Gateway, and refuses it unless the SHA-256 matches the lock file's, which the deploy script passes in. Nothing secret crosses the Run Command for media at all.
 
 Why not a SAS over a private endpoint: a user delegation key is requested from the blob endpoint itself, which Cloud Shell can't reach when the account is private, and IP firewall rules don't apply to clients in the account's own region (D-C4). Fork F4 asks whether the public, Entra-only media endpoint is acceptable; the alternative is uploading media from the packaging VM's browser, which makes every new version a manual step.
 
@@ -202,10 +201,10 @@ The instrument is built (stratusphere/README.md stages 1, 2, 4, 5). What changes
 
 | What | Where it lives | Who sees it |
 |---|---|---|
-| Console and packaging VM local admin | Tier Key Vault, generated, reused | Landing zone admins group (Key Vault Secrets User) |
-| ProfileUnity license string (`LICSTR`) | Tier Key Vault `lw-licstr`, set once by the operator with `Set-LwSecret.ps1` (prompts with `Read-Host -AsSecureString`, writes through the ARM management plane; never a parameter, never chat) | The console and each session host, read with their own identities over the vault's private endpoint; never Cloud Shell after it is set |
+| Console and packaging VM local admin | Tier Key Vault, generated, reused | The operator who ran the deploy (Key Vault Secrets User on that one secret), read from inside the network because the vault is private (`docs/console.md`) |
+| ProfileUnity license string (`LICSTR`) | Tier Key Vault `lw-licstr`, set once by the operator with `Set-LiquidwareSecret.ps1` (prompts with `Read-Host -AsSecureString`, writes through the ARM management plane; never a parameter, never chat) | The console and each session host, read with their own identities over the vault's private endpoint; never Cloud Shell after it is set |
 | Installers | No credential: each VM reads `media` with its own managed identity | n/a |
-| Console managed identity | Entra | Writes the `staging` container only; reads `media` and its two secrets |
+| Console managed identity | Entra | Writes the `staging` container only; reads `media` and `lw-licstr` (granted on the deploy after the secret is stored) |
 | Session host managed identities (the landing zone's, system-assigned) | Entra | Read `media` and `lw-licstr`, granted per host by the sync and removed by `Cleanup` |
 | Packaging VM managed identity | Entra, exists only with the VM | Reads `media`; writes the `appattach` share |
 | Ops runner identity `id-<base>-lw-ops` | Entra, user-assigned, used only by the on-demand container | Reads `staging`, writes the live config account |

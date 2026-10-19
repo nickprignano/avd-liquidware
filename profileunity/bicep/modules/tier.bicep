@@ -418,3 +418,6 @@ output keyVaultName string = keyVault.name
 output configAccountName string = configAccount.name
 output packagesAccountName string = packagesAccount.name
 output opsIdentityId string = opsIdentity.id
+output opsPrincipalId string = opsIdentity.properties.principalId
+output consoleSubnetId string = '${vnet.id}/subnets/snet-lw-console'
+output consolePrivateIp string = cidrHost(subnets.console, 3)

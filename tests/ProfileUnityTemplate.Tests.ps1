@@ -5,8 +5,11 @@
 BeforeAll {
   $script:root = Split-Path $PSScriptRoot -Parent
   $bicep = (Get-Command bicep -ErrorAction Stop).Source
-  $raw = & $bicep build (Join-Path $script:root 'profileunity/bicep/main.bicep') --stdout 2>&1
-  if ($LASTEXITCODE -ne 0) { throw "bicep build failed: $raw" }
+  # Warnings go to stderr; keep them out of the JSON (CI's lint step reports them).
+  $stderr = Join-Path ([System.IO.Path]::GetTempPath()) "bicep-build-$PID.txt"
+  $raw = & $bicep build (Join-Path $script:root 'profileunity/bicep/main.bicep') --stdout 2>$stderr
+  if ($LASTEXITCODE -ne 0) { throw "bicep build failed: $(Get-Content $stderr -Raw)" }
+  Remove-Item $stderr -ErrorAction SilentlyContinue
   $script:main = ($raw -join "`n") | ConvertFrom-Json -Depth 100 -AsHashtable
 
   # Every resource in a template and its nested deployments, with the template it sits in.
@@ -26,6 +29,21 @@ BeforeAll {
   $script:spoke = ($script:all | Where-Object { $_.Deployment -eq 'main' -and $_.Resource['name'] -eq 'liquidware-spoke' }).Resource
   function Get-TierResource([string] $Symbol) { $script:tier['resources'][$Symbol] }
   $script:roles = $script:tier['variables']['roles']
+  function Get-Module([string] $Name) { ($script:all | Where-Object { $_.Deployment -eq 'main' -and $_.Resource['name'] -eq $Name }).Resource }
+  function Get-ModuleResource([string] $Name) { @($script:all | Where-Object { $_.Deployment -eq $Name -and -not $_.Resource['existing'] }) }
+  # Built-in role definition IDs, the same in every tenant. Any other role in the template fails a test.
+  $script:builtIn = @{
+    'aba4ae5f-2193-4029-9191-0cb91df5e314' = 'Storage File Data SMB Share Reader'
+    '69566ab7-960f-475b-8e7c-b3118f30c6bd' = 'Storage File Data Privileged Contributor'
+    'c12c1c16-33a1-487b-954d-41c89c60f349' = 'Reader and Data Access'
+    'ba92f5b4-2d11-453d-a403-e96b0029c9fe' = 'Storage Blob Data Contributor'
+    '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1' = 'Storage Blob Data Reader'
+    '4633458b-17de-408a-b874-0445c86b69e6' = 'Key Vault Secrets User'
+  }
+  # The role an assignment grants, by name, resolved through its own template's roles variable.
+  function Get-RoleName($a) {
+    if ($a.Resource['properties']['roleDefinitionId'] -match "variables\('roles'\)\.(\w+)") { $script:builtIn[$a.Template['variables']['roles'][$Matches[1]]] }
+  }
 }
 
 Describe 'Landing zone writes' {
@@ -40,7 +58,9 @@ Describe 'Landing zone writes' {
   }
   It 'never deploys the profiles account, a DNS zone or a VNet outside the tier' {
     $script:all | Where-Object Type -eq 'Microsoft.Network/privateDnsZones' | Where-Object { -not $_.Resource['existing'] } | Should -BeNullOrEmpty
-    @($script:all | Where-Object Type -eq 'Microsoft.Storage/storageAccounts' | ForEach-Object Symbol | Sort-Object) | Should -Be @('configAccount', 'packagesAccount')
+    @($script:all | Where-Object { $_.Type -eq 'Microsoft.Storage/storageAccounts' -and $_.Deployment -eq 'liquidware-tier' } | ForEach-Object Symbol | Sort-Object) | Should -Be @('configAccount', 'packagesAccount')
+    @(Get-ModuleResource 'liquidware-media' | Where-Object Type -eq 'Microsoft.Storage/storageAccounts').Count | Should -Be 1
+    @($script:all | Where-Object { $_.Type -eq 'Microsoft.Storage/storageAccounts' -and -not $_.Resource['existing'] }).Count | Should -Be 3
     ($script:all | Where-Object { $_.Type -eq 'Microsoft.Storage/storageAccounts' -and $_.Resource['kind'] -ne 'StorageV2' }) | Should -BeNullOrEmpty
     @($script:all | Where-Object { $_.Type -eq 'Microsoft.Network/virtualNetworks' -and -not $_.Resource['existing'] }).Count | Should -Be 1
   }
@@ -88,8 +108,20 @@ Describe 'Role assignments' {
     $script:roles['filePrivilegedContributor'] | Should -Be '69566ab7-960f-475b-8e7c-b3118f30c6bd'
     $script:roles['readerAndDataAccess'] | Should -Be 'c12c1c16-33a1-487b-954d-41c89c60f349'
   }
-  It 'gives every assignment a known role, so none goes unchecked' {
-    foreach ($a in $script:assignments) { Get-RoleKey $a | Should -BeIn @($script:roles.Keys) -Because $a.Symbol }
+  It 'gives every assignment a known built-in role, so none goes unchecked' {
+    foreach ($a in $script:assignments) { Get-RoleName $a | Should -Not -BeNullOrEmpty -Because $a.Symbol }
+  }
+  It 'gives no assignment to a user other than the operator: media, and the console password secret only' {
+    $users = @($script:assignments | Where-Object { $_.Resource['properties']['principalType'] -eq 'User' })
+    $users.Count | Should -Be 2
+    foreach ($u in $users) { $u.Resource['properties']['principalId'] | Should -Be "[parameters('operatorObjectId')]" }
+    $onMedia = @($users | Where-Object Deployment -eq 'liquidware-media')
+    $onMedia.Count | Should -Be 1
+    $onMedia[0].Resource['scope'] | Should -Match "'media'\)\]$"
+    $onSecret = @($users | Where-Object Deployment -eq 'liquidware-console-access')
+    $onSecret.Count | Should -Be 1
+    Get-RoleName $onSecret[0] | Should -Be 'Key Vault Secrets User'
+    $onSecret[0].Resource['scope'] | Should -Match "'lw-console-password'\)\]$"
   }
   It 'gives the users group read on the live config account and nothing else (tier N-C1)' {
     $groups = @($script:assignments | Where-Object { $_.Resource['properties']['principalType'] -eq 'Group' })
@@ -116,11 +148,97 @@ Describe 'Packages account' {
   It 'has one share, appattach, and no blob container' {
     @($script:all | Where-Object { $_.Type -eq 'Microsoft.Storage/storageAccounts/fileServices/shares' -and $_.Resource['name'] -match 'packagesAccountName' }).Count | Should -Be 1
     (Get-TierResource 'packagesShare')['name'] | Should -Match "'appattach'"
-    $script:all | Where-Object Type -like 'Microsoft.Storage/storageAccounts/blobServices*' | Should -BeNullOrEmpty
+    $script:all | Where-Object { $_.Type -like 'Microsoft.Storage/storageAccounts/blobServices*' -and $_.Deployment -notin 'liquidware-media', 'liquidware-console-access' } | Should -BeNullOrEmpty
   }
   It 'is reached only through its private endpoint' {
     (Get-TierResource 'packagesAccount')['properties']['publicNetworkAccess'] | Should -Be 'Disabled'
     (Get-TierResource 'packagesAccount')['properties']['allowBlobPublicAccess'] | Should -BeFalse
+  }
+}
+
+Describe 'Media account' {
+  BeforeAll { $script:mediaAccount = (Get-ModuleResource 'liquidware-media' | Where-Object Type -eq 'Microsoft.Storage/storageAccounts').Resource }
+  It 'has shared key and anonymous access off, and an Entra-only public endpoint (fork F4)' {
+    $p = $script:mediaAccount['properties']
+    $p['allowSharedKeyAccess'] | Should -BeFalse
+    $p['allowBlobPublicAccess'] | Should -BeFalse
+    $p['defaultToOAuthAuthentication'] | Should -BeTrue
+  }
+  It 'has two private containers, media and staging, and no file share' {
+    $c = @(Get-ModuleResource 'liquidware-media' | Where-Object Type -eq 'Microsoft.Storage/storageAccounts/blobServices/containers')
+    @($c | ForEach-Object { ($_.Resource['name'] -split "'")[-2] } | Sort-Object) | Should -Be @('media', 'staging')
+    foreach ($x in $c) { $x.Resource['properties']['publicAccess'] | Should -Be 'None' }
+    Get-ModuleResource 'liquidware-media' | Where-Object Type -like '*fileServices*' | Should -BeNullOrEmpty
+  }
+  It 'lets the ops runner only read staging' {
+    $ops = @($script:all | Where-Object { $_.Type -eq 'Microsoft.Authorization/roleAssignments' -and $_.Resource['properties']['principalId'] -eq "[parameters('opsPrincipalId')]" })
+    $ops.Count | Should -Be 1
+    Get-RoleName $ops[0] | Should -Be 'Storage Blob Data Reader'
+    $ops[0].Resource['scope'] | Should -Match "'staging'\)\]$"
+  }
+}
+
+Describe 'Console' {
+  BeforeAll {
+    $script:vm = (Get-ModuleResource 'liquidware-console' | Where-Object Type -eq 'Microsoft.Compute/virtualMachines').Resource
+    $script:consoleModule = Get-Module 'liquidware-console'
+  }
+  It 'has Trusted Launch and encryption at host, like every VM in the template' {
+    $vms = @($script:all | Where-Object { $_.Type -eq 'Microsoft.Compute/virtualMachines' -and -not $_.Resource['existing'] })
+    $vms.Count | Should -Be 1
+    foreach ($v in $vms) {
+      $sp = $v.Resource['properties']['securityProfile']
+      $sp['securityType'] | Should -Be 'TrustedLaunch'
+      $sp['uefiSettings']['secureBootEnabled'] | Should -BeTrue
+      $sp['uefiSettings']['vTpmEnabled'] | Should -BeTrue
+      $sp['encryptionAtHost'] | Should -BeTrue
+    }
+  }
+  It 'is Windows Server 2025 Azure Edition on the smallest size the spec allows, with a static private IP and no public IP' {
+    $p = $script:vm['properties']
+    $p['storageProfile']['imageReference']['sku'] | Should -Be '2025-datacenter-azure-edition'
+    $script:vm['identity']['type'] | Should -Be 'SystemAssigned'
+    (Get-ModuleResource 'liquidware-console' | Where-Object Type -eq 'Microsoft.Compute/virtualMachines').Template['parameters']['vmSize']['defaultValue'] | Should -Be 'Standard_D2as_v5'
+    $ip = (Get-ModuleResource 'liquidware-console' | Where-Object Type -eq 'Microsoft.Network/networkInterfaces').Resource['properties']['ipConfigurations'][0]['properties']
+    $ip['privateIPAllocationMethod'] | Should -Be 'Static'
+    $ip.Keys | Should -Not -Contain 'publicIPAddress'
+    $script:tier['outputs']['consolePrivateIp']['value'] | Should -Be "[cidrHost(variables('subnets').console, 3)]"
+  }
+  It 'takes its password as a secure parameter and writes it only to the tier Key Vault' {
+    $t = (Get-ModuleResource 'liquidware-console' | Select-Object -First 1).Template
+    $t['parameters']['adminPassword']['type'] | Should -Be 'securestring'
+    $script:main['parameters']['consoleAdminPassword']['type'] | Should -Be 'securestring'
+    $secret = (Get-ModuleResource 'liquidware-console' | Where-Object Type -eq 'Microsoft.KeyVault/vaults/secrets').Resource
+    $secret['properties']['value'] | Should -Be "[parameters('adminPassword')]"
+    ($t['outputs'].Keys) | Should -Be @('principalId')
+    ($script:main['outputs'] | ConvertTo-Json -Depth 20) | Should -Not -Match 'adminPassword|consoleAdminPassword'
+  }
+  It 'is created only when it does not exist yet, so a rerun keeps its password (lesson 0002)' {
+    $script:consoleModule['condition'] | Should -Be "[not(parameters('consoleExists'))]"
+  }
+  It 'shuts down daily outside prod' {
+    $s = (Get-ModuleResource 'liquidware-console' | Where-Object Type -eq 'Microsoft.DevTestLab/schedules').Resource
+    $s['condition'] | Should -Be "[not(equals(parameters('environment'), 'prod'))]"
+    $s['properties']['taskType'] | Should -Be 'ComputeVmShutdownTask'
+  }
+}
+
+Describe 'Console identity' {
+  BeforeAll {
+    $script:consoleRoles = @(Get-ModuleResource 'liquidware-console-access' | Where-Object { $_.Type -eq 'Microsoft.Authorization/roleAssignments' -and $_.Resource['properties']['principalId'] -eq "[parameters('consolePrincipalId')]" })
+  }
+  It 'reads media, writes staging and reads one secret, and nothing else' {
+    $script:consoleRoles.Count | Should -Be 3
+    @($script:assignments | Where-Object { $_.Resource['properties']['principalId'] -eq "[parameters('consolePrincipalId')]" }).Count | Should -Be 3
+    $byName = @{}
+    foreach ($r in $script:consoleRoles) { $byName[(Get-RoleName $r)] = $r.Resource }
+    $byName['Storage Blob Data Reader']['scope'] | Should -Match "'media'\)\]$"
+    $byName['Storage Blob Data Contributor']['scope'] | Should -Match "'staging'\)\]$"
+    $byName['Key Vault Secrets User']['scope'] | Should -Match "'lw-licstr'\)\]$"
+    $byName['Key Vault Secrets User']['condition'] | Should -Be "[parameters('licenseStored')]"
+  }
+  It 'has no role on the live config account' {
+    foreach ($r in $script:consoleRoles) { $r.Resource['scope'] | Should -Not -Match 'configAccount|lwc' }
   }
 }
 
