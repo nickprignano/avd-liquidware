@@ -435,18 +435,126 @@ function Get-LwSecretPath {
   "$KeyVaultId/secrets/$($Name)?api-version=2023-07-01"
 }
 
+function Get-LwMediaLockEntry {
+  # The newest lock entry for one component, or $null. Lock: the parsed media.lock.json, or $null.
+  [CmdletBinding()]
+  param(
+    $Lock = $null,
+    [Parameter(Mandatory)] [string] $Component
+  )
+  if (-not $Lock -or -not $Lock.PSObject.Properties['entries']) { return $null }
+  @($Lock.entries | Where-Object { $_ -and $_.component -eq $Component } | Sort-Object { [version] $_.version }) | Select-Object -Last 1
+}
+
+function Get-LwDeletedVault {
+  # The tier's Key Vault, soft-deleted by an earlier Cleanup. Purge protection keeps it for its
+  # retention (7 days), and the template reuses the same name, so Deploy recovers it rather than
+  # failing on the name (lesson 0022, DN-M3).
+  #   Removed: Get-AzKeyVault -InRemovedState shape (VaultName, Location, ScheduledPurgeDate).
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] $Names,
+    [AllowEmptyCollection()] [object[]] $Removed = @()
+  )
+  $environment = ($Names.Base -split '-')[-1]
+  $prefix = "kv$($Names.Clean)$($environment)lw"
+  $pattern = "^$([regex]::Escape($prefix.Substring(0, [Math]::Min($prefix.Length, 24))))[a-z0-9]{0,5}$"
+  $hits = @($Removed | Where-Object { $_ -and $_.VaultName -match $pattern -and $_.VaultName.Length -le 24 })
+  if ($hits.Count -eq 0) { return [pscustomobject]@{ Vault = $null; Result = @() } }
+  if ($hits.Count -gt 1) {
+    return [pscustomobject]@{ Vault = $null; Result = @(Get-LwCheckResult FAIL 'deleted-key-vault' "$($hits.Count) soft-deleted vaults match $prefix*: $(@($hits.VaultName) -join ', ')." -Recommendation 'Recover the right one with Undo-AzKeyVaultRemoval, then run again.' -Category ProfileUnity) }
+  }
+  $v = $hits[0]
+  [pscustomobject]@{
+    Vault  = $v
+    Result = @(Get-LwCheckResult INFO 'deleted-key-vault' "$($v.VaultName) is soft-deleted (purge protection, until $($v.ScheduledPurgeDate)): Deploy recovers it, with its secrets." -Category ProfileUnity)
+  }
+}
+
+function Get-LwCleanupPlan {
+  # What Cleanup removes, in order (deploy-spec section 11): the landing zone's child resources
+  # the tier added, then the tier resource group. Nothing else, and nothing by a looser match
+  # than the tier's own names.
+  #   Peering: the spoke's peerings (Name, RemoteVnetId).
+  #   DnsLink: links in the landing zone's privatelink zones (Name, ZoneName, VirtualNetworkId, ResourceId).
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] $Names,
+    [bool] $TierGroupExists = $false,
+    [AllowEmptyCollection()] [object[]] $Peering = @(),
+    [AllowEmptyCollection()] [object[]] $DnsLink = @()
+  )
+  $tierVnet = "/resourceGroups/$($Names.TierGroup)/providers/Microsoft.Network/virtualNetworks/$($Names.TierVnet)"
+  $steps = [System.Collections.Generic.List[object]]::new()
+  foreach ($p in @($Peering | Where-Object { $_ -and $_.Name -eq $Names.PeeringToTier -and "$($_.RemoteVnetId)" -like "*$tierVnet" })) {
+    $steps.Add([pscustomobject]@{ Kind = 'Peering'; Name = $p.Name; Parent = $Names.Vnet; ResourceGroup = $Names.ResourceGroups.Network; ResourceId = '' })
+  }
+  foreach ($l in @($DnsLink | Where-Object { $_ -and $_.Name -eq "link-$($Names.Base)-liquidware" -and "$($_.VirtualNetworkId)" -like "*$tierVnet" })) {
+    $steps.Add([pscustomobject]@{ Kind = 'DnsLink'; Name = $l.Name; Parent = $l.ZoneName; ResourceGroup = $Names.ResourceGroups.Network; ResourceId = $l.ResourceId })
+  }
+  if ($TierGroupExists) {
+    $steps.Add([pscustomobject]@{ Kind = 'ResourceGroup'; Name = $Names.TierGroup; Parent = ''; ResourceGroup = $Names.TierGroup; ResourceId = '' })
+  }
+  $steps.ToArray()
+}
+
+function Get-LwTeardownCheck {
+  # Teardown evidence: after Cleanup, nothing in Get-LwCleanupPlan is left (deploy-spec section 13).
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] $Names,
+    [bool] $TierGroupExists = $false,
+    [AllowEmptyCollection()] [object[]] $Peering = @(),
+    [AllowEmptyCollection()] [object[]] $DnsLink = @()
+  )
+  $left = @(Get-LwCleanupPlan -Names $Names -TierGroupExists $TierGroupExists -Peering $Peering -DnsLink $DnsLink)
+  foreach ($s in $left) {
+    Get-LwCheckResult FAIL 'teardown' "Still there: $($s.Kind) $($s.Name)$(if ($s.Parent) { " on $($s.Parent)" })" -Recommendation 'Run Cleanup again; if it stays, remove it in the portal and record why.' -Category Cleanup
+  }
+  if ($left.Count -eq 0) {
+    Get-LwCheckResult PASS 'teardown' "$($Names.TierGroup) not found, no tier peering on $($Names.Vnet), no tier DNS links." -Category Cleanup
+  }
+}
+
+function Get-LwRunCommandResult {
+  # The one result line a host script prints (LW-RESULT status=... path=... detail=...), as a check.
+  # Output: the Run Command's instance view output, all of it (lesson 0012).
+  [CmdletBinding()]
+  param(
+    [AllowEmptyString()] [string] $Output = '',
+    [Parameter(Mandatory)] [string] $Check,
+    [string[]] $Pass = @('verified')
+  )
+  $line = @(($Output -split "`r?`n") | Where-Object { $_ -match '^LW-RESULT ' }) | Select-Object -Last 1
+  if (-not $line) {
+    return Get-LwCheckResult FAIL $Check "No LW-RESULT line. Output: $(($Output -replace '\s+', ' ').Trim())" -Recommendation 'Read the Run Command instance view; the script may not have started.' -Category ProfileUnity
+  }
+  $status = $(if ($line -match 'status=(\S+)') { $Matches[1] } else { '' })
+  $detail = $(if ($line -match 'detail=(.*)$') { $Matches[1] } else { '' })
+  if ($Pass -contains $status) { return Get-LwCheckResult PASS $Check "$status. $detail" -Category ProfileUnity }
+  Get-LwCheckResult FAIL $Check "$status. $detail" -Recommendation 'Fix what the detail names, then Deploy again.' -Category ProfileUnity
+}
+
 function Get-LwPlanSummary {
-  # What each component would do, for the slice that is built. Unbuilt steps say so.
+  # Whether each component's action is built yet (deploy-spec section 15), and what Plan and Deploy
+  # must say about cost. Unbuilt steps fail before anything changes.
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] [string[]] $Component,
     [Parameter(Mandatory)] [string] $Action
   )
-  $built = @{ Plan = $true; Check = $true }
+  $built = @{
+    ProfileUnity = @('Plan', 'Check', 'Deploy', 'Cleanup')
+    FlexApp      = @('Plan', 'Check', 'Deploy', 'Cleanup')
+    Stratusphere = @('Plan', 'Check')
+  }
   foreach ($c in $Component) {
-    if ($built.ContainsKey($Action)) { continue }
+    if (@($built[$c]) -contains $Action) { continue }
     Get-LwCheckResult FAIL "$($c.ToLower())-$($Action.ToLower())" "$Action for $c is not built yet (deploy-spec section 15)." -Category $c
+  }
+  if ($Action -in 'Plan', 'Deploy' -and @($Component | Where-Object { $_ -in 'ProfileUnity', 'FlexApp' }).Count -gt 0) {
+    Get-LwCheckResult WARN 'budget' "The landing zone's budget Lock doesn't stop this tier: the console, NAT Gateway, private endpoints and storage keep billing." -Recommendation 'In dev, run Cleanup the same day (D-H6).' -Category Cost
   }
 }
 
-Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwPlanSummary
+Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwMediaLockEntry, Get-LwDeletedVault, Get-LwCleanupPlan, Get-LwTeardownCheck, Get-LwRunCommandResult, Get-LwPlanSummary

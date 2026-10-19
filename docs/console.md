@@ -4,27 +4,18 @@ Personal project, not for production use. Provided as is, without warranty of an
 
 Everything around the console is automated: its network, the media and staging containers, its identity's roles and its local admin password (deploy-spec sections 5 and 6.1). The console software itself is installed by hand until the 6.9.5 console's silent install switches are verified (V18). `scripts/host/Install-ProfileUnityConsole.ps1` downloads the installer with the VM's own identity, checks its SHA-256 against your lock, then stops and prints this list.
 
-The `Deploy` action, which runs steps 3 and 4 for you, comes in a later slice. Until then the commands below are the manual equivalent. Steps marked **unverified** have not been run yet; the first sandbox run checks them.
+Steps marked **unverified** have not been run yet; the first sandbox run checks them.
 
 ## Before: once per tier, from Cloud Shell
 
-1. **Store the license string.** `./scripts/Set-LiquidwareSecret.ps1 -NamePrefix avdlz -Environment dev` prompts for it with hidden input and writes `lw-licstr` through the management plane. Never paste it anywhere else, and never into chat.
-2. **Upload the console installer** you downloaded from Liquidware:
+1. **Deploy the tier**: `./scripts/Deploy-LiquidwareTier.ps1 -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Deploy`. It creates the Key Vault and the media account the next two steps need, and warns that there is no console installer yet.
+2. **Store the license string.** `./scripts/Set-LiquidwareSecret.ps1 -NamePrefix avdlz -Environment dev` prompts for it with hidden input and writes `lw-licstr` through the management plane. Never paste it anywhere else, and never into chat.
+3. **Upload the console installer** you downloaded from Liquidware:
    ```powershell
    ./scripts/Publish-LiquidwareMedia.ps1 -NamePrefix avdlz -Environment dev -Path ./ProfileUnityConsole.exe -Component ProfileUnityConsole -Version 6.9.5
    ```
    It writes `output/media.lock.json`. Commit that file to the customer's private repo, never to this one.
-3. **Deploy the template again**, so the console's identity gets its read role on `lw-licstr` (a role can only be scoped to a secret that exists).
-4. **Download and verify on the console** by managed Run Command:
-   ```powershell
-   $e = (Get-Content ./output/media.lock.json -Raw | ConvertFrom-Json).entries | Where-Object component -eq ProfileUnityConsole | Select-Object -Last 1
-   $media = (Get-AzStorageAccount -ResourceGroupName rg-avdlz-dev-liquidware | Where-Object { $_.Tags['liquidware-role'] -eq 'media' }).StorageAccountName
-   Set-AzVMRunCommand -ResourceGroupName rg-avdlz-dev-liquidware -VMName vm-avdlzlwcon -RunCommandName lw-profileunity-console -Location northcentralus `
-     -ScriptLocalPath ./scripts/host/Install-ProfileUnityConsole.ps1 `
-     -Parameter @(@{ Name = 'MediaAccountName'; Value = $media }, @{ Name = 'Blob'; Value = $e.blob }, @{ Name = 'Sha256'; Value = $e.sha256 })
-   (Get-AzVMRunCommand -ResourceGroupName rg-avdlz-dev-liquidware -VMName vm-avdlzlwcon -RunCommandName lw-profileunity-console -Expand InstanceView).InstanceView.Output
-   ```
-   Look for `LW-RESULT status=verified`. A `failed` line says why; a hash mismatch deletes the download.
+4. **Deploy again.** The console's identity now gets its read role on `lw-licstr` (a role can only be scoped to a secret that exists), and the deploy runs `Install-ProfileUnityConsole.ps1` on the console by managed Run Command with the lock entry. Look for `PASS console-install`; a `FAIL` line carries the script's own `LW-RESULT` detail, and a hash mismatch deletes the download. The console must be running (it shuts down daily at 19:00 UTC outside prod).
 
 ## On the console
 
@@ -45,4 +36,4 @@ The `Deploy` action, which runs steps 3 and 4 for you, comes in a later slice. U
 
 12. Run `./scripts/Deploy-LiquidwareTier.ps1 -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Check` from Cloud Shell.
 
-When V18 passes, steps 5 to 11 become part of `Install-ProfileUnityConsole.ps1`, and this page shrinks to steps 1 to 3.
+When V18 passes, steps 5 to 11 become part of `Install-ProfileUnityConsole.ps1`, and this page shrinks to steps 1 to 4.

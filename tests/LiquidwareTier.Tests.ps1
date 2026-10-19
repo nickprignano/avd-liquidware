@@ -346,13 +346,111 @@ Describe 'Get-LwSecretPath' {
 }
 
 Describe 'Get-LwPlanSummary' {
-  It 'says nothing for the actions this slice builds' {
+  It 'says nothing but the budget warning for the actions built for ProfileUnity and FlexApp' {
     @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Check).Count | Should -Be 0
+    @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Cleanup).Count | Should -Be 0
+    $d = @(Get-LwPlanSummary -Component ProfileUnity -Action Deploy)
+    $d.Count | Should -Be 1
+    $d[0].Check | Should -Be 'budget'
+    $d[0].Status | Should -Be 'WARN'
   }
   It 'fails, per component, for an action not built yet' {
-    $r = @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Deploy)
+    $r = @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Promote)
     $r.Count | Should -Be 2
     $r[0].Detail | Should -Match 'not built yet'
+    @(Get-LwPlanSummary -Component Stratusphere -Action Deploy | Where-Object Status -eq 'FAIL').Count | Should -Be 1
+  }
+}
+
+Describe 'Get-LwMediaLockEntry' {
+  It 'picks the newest version of one component, and nothing from an empty lock' {
+    $lock = [pscustomobject]@{ entries = @(
+        [pscustomobject]@{ component = 'ProfileUnityConsole'; version = '6.9.10'; blob = 'a' }
+        [pscustomobject]@{ component = 'ProfileUnityConsole'; version = '6.9.5'; blob = 'b' }
+        [pscustomobject]@{ component = 'ProfileUnityClient'; version = '7.0'; blob = 'c' }
+      )
+    }
+    (Get-LwMediaLockEntry -Lock $lock -Component ProfileUnityConsole).blob | Should -Be 'a'
+    Get-LwMediaLockEntry -Lock $null -Component ProfileUnityConsole | Should -BeNullOrEmpty
+    Get-LwMediaLockEntry -Lock ([pscustomobject]@{ format = 'avd-liquidware-media-lock/v1' }) -Component ProfileUnityConsole | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'Get-LwDeletedVault' {
+  BeforeAll {
+    $script:n = Get-LwName -NamePrefix avdlz -Environment dev
+    function New-Removed($Name) { [pscustomobject]@{ VaultName = $Name; Location = 'northcentralus'; ScheduledPurgeDate = '2026-10-26' } }
+  }
+  It 'finds the tier vault an earlier Cleanup soft-deleted' {
+    $r = Get-LwDeletedVault -Names $script:n -Removed @((New-Removed 'kvavdlzdevlwab12c'), (New-Removed 'kv-other'))
+    $r.Vault.VaultName | Should -Be 'kvavdlzdevlwab12c'
+    $r.Result[0].Status | Should -Be 'INFO'
+  }
+  It 'ignores other landing zones and environments' {
+    (Get-LwDeletedVault -Names $script:n -Removed @((New-Removed 'kvavdlztestlwab12c'), (New-Removed 'kvavdlzdevlwab12cextra'), (New-Removed 'kvavdlzxdevlwab12c'))).Vault | Should -BeNullOrEmpty
+    @((Get-LwDeletedVault -Names $script:n).Result).Count | Should -Be 0
+  }
+  It 'fails rather than guess between two' {
+    $r = Get-LwDeletedVault -Names $script:n -Removed @((New-Removed 'kvavdlzdevlwab12c'), (New-Removed 'kvavdlzdevlwzz99y'))
+    $r.Vault | Should -BeNullOrEmpty
+    $r.Result[0].Status | Should -Be 'FAIL'
+  }
+}
+
+Describe 'Get-LwCleanupPlan' {
+  BeforeAll {
+    $script:n = Get-LwName -NamePrefix avdlz -Environment dev
+    $script:tierVnet = '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-avdlz-dev-liquidware/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev-liquidware'
+    $script:otherVnet = '/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub'
+    function New-Link($Name, $Zone, $Vnet) { [pscustomobject]@{ Name = $Name; ZoneName = $Zone; VirtualNetworkId = $Vnet; ResourceId = "/x/$Zone/$Name" } }
+  }
+  It 'removes the peering and DNS links first, then the tier resource group' {
+    $steps = @(Get-LwCleanupPlan -Names $script:n -TierGroupExists $true `
+        -Peering @([pscustomobject]@{ Name = 'peer-avdlz-dev-to-liquidware'; RemoteVnetId = $script:tierVnet }) `
+        -DnsLink @((New-Link 'link-avdlz-dev-liquidware' 'privatelink.file.core.windows.net' $script:tierVnet), (New-Link 'link-avdlz-dev-liquidware' 'privatelink.vaultcore.azure.net' $script:tierVnet)))
+    @($steps.Kind) | Should -Be @('Peering', 'DnsLink', 'DnsLink', 'ResourceGroup')
+    $steps[-1].Name | Should -Be 'rg-avdlz-dev-liquidware'
+    $steps[0].Parent | Should -Be 'vnet-avdlz-dev'
+    $steps[0].ResourceGroup | Should -Be 'rg-avdlz-dev-network'
+  }
+  It 'never touches a landing zone peering or link that is not the tier one' {
+    $steps = @(Get-LwCleanupPlan -Names $script:n `
+        -Peering @([pscustomobject]@{ Name = 'peer-avdlz-dev-to-hub'; RemoteVnetId = $script:otherVnet }, [pscustomobject]@{ Name = 'peer-avdlz-dev-to-liquidware'; RemoteVnetId = $script:otherVnet }) `
+        -DnsLink @((New-Link 'link-avdlz-dev' 'privatelink.file.core.windows.net' '/x/vnet-avdlz-dev'), (New-Link 'link-avdlz-dev-liquidware' 'privatelink.file.core.windows.net' $script:otherVnet)))
+    $steps | Should -BeNullOrEmpty
+  }
+  It 'does nothing when nothing is left (ARM omits empty peerings)' {
+    @(Get-LwCleanupPlan -Names $script:n) | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'Get-LwTeardownCheck' {
+  BeforeAll { $script:n = Get-LwName -NamePrefix avdlz -Environment dev }
+  It 'passes when the resource group, peering and links are gone' {
+    $r = @(Get-LwTeardownCheck -Names $script:n)
+    $r.Count | Should -Be 1
+    $r[0].Status | Should -Be 'PASS'
+  }
+  It 'fails once per thing left' {
+    $r = @(Get-LwTeardownCheck -Names $script:n -TierGroupExists $true)
+    $r.Count | Should -Be 1
+    $r[0].Status | Should -Be 'FAIL'
+    $r[0].Detail | Should -Match 'rg-avdlz-dev-liquidware'
+  }
+}
+
+Describe 'Get-LwRunCommandResult' {
+  It 'passes a verified console download' {
+    $r = Get-LwRunCommandResult -Output "Console checklist ...`nLW-RESULT status=verified path=C:\x.exe detail=SHA-256 matches" -Check 'console-install'
+    $r.Status | Should -Be 'PASS'
+    $r.Detail | Should -Match 'SHA-256 matches'
+  }
+  It 'fails a failed run, or output without the result line, and shows what came back' {
+    (Get-LwRunCommandResult -Output 'LW-RESULT status=failed path= detail=SHA-256 mismatch' -Check 'console-install').Status | Should -Be 'FAIL'
+    $none = Get-LwRunCommandResult -Output "Access denied`r`n" -Check 'console-install'
+    $none.Status | Should -Be 'FAIL'
+    $none.Detail | Should -Match 'Access denied'
+    (Get-LwRunCommandResult -Output '' -Check 'console-install').Status | Should -Be 'FAIL'
   }
 }
 
