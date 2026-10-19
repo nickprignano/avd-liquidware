@@ -35,6 +35,15 @@ field reports into pull requests. Read [llms.txt](llms.txt) for a map.
 
 Before building something, run the prior-art check (`python3 scripts/kb/prior_art.py "<topic>"`).
 
+## Working with Claude
+
+Claude sessions in this repo follow the family's model-selection convention,
+[ai-brain decision 0006](https://github.com/nickprignano/ai-brain/blob/main/docs/knowledge/decisions/0006-model-selection-convention.md):
+threads on Claude Opus 5.5 at `medium` effort, pinned for Claude Code in
+[.claude/settings.json](.claude/settings.json), and effort is raised before the model is switched.
+The pilot runs to 2026-11-30; its session measures are kept in
+[docs/claude-pilot.md](docs/claude-pilot.md).
+
 ## Guardrails
 
 The repo is public. Nothing in it identifies a real tenant, subscription, employer or customer,
