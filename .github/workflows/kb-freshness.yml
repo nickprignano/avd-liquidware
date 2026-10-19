@@ -56,6 +56,8 @@ jobs:
           gh label create kb-accepted --color 0e8a16 --description "Reviewed; turn into a KB pull request" --force
           gh label create kb-freshness --color fbca04 --description "KB pages to re-check" --force
           gh label create kb-source --color 5319e7 --description "Expert or source nominated for the KB to follow" --force
+          gh label create handoff --color 0052cc --description "Owner-approved handoff from another project (decision 0012)" --force
+          gh label create handoff-proposed --color c5def5 --description "Handoff a project proposed; waits for the owner" --force
       - name: Fetch recent digests
         # For expert yield: which digest items people ticked as worth adding.
         env:
