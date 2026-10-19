@@ -97,7 +97,7 @@ def family_items(fetch=read_sibling_family) -> list[str]:
     ours = data.get("format_version")
     out = []
     for p in data.get("projects", []):
-        if p.get("self"):
+        if p.get("self") or p.get("role") == "observer":
             continue
         if not p.get("repo"):
             out.append(f"{p['name']}: repo not linked yet; add it to family.yaml, then its sources")
@@ -144,6 +144,11 @@ def collect(max_age_days: int, today: date, digests: list[dict] | None = None,
         if e["status"] == "unverified":
             sections["Unverified known-error fixes"].append(f"`{e['id']}`: {e['symptom'][:80]}")
     sections.update(expert_items(max_age_days, today, digests))
+    if kblib.DIRECTIVES.exists():
+        for d in (kblib.load_yaml(kblib.DIRECTIVES) or {}).get("directives", []) or []:
+            if d.get("until") and date.fromisoformat(str(d["until"])) < today:
+                sections.setdefault("Expired directives", []).append(
+                    f"`{d['id']}`: past its until date ({d['until']}); remove it from directives.yaml")
     if fetch_family:
         sections["Family alignment"] = family_items(fetch_family)
     return sections

@@ -14,7 +14,7 @@ Nick Prignano and the ai-brain contributors, licensed under the Apache License, 
   docs/knowledge/schema/
   docs/knowledge/curation.md, docs/knowledge/experts.md, docs/knowledge/decisions/template.md
   docs/2ndbrain/SPEC.md, docs/guardrails.md, AGENTS.md
-  .claude/skills/2ndbrain-kb/
+  .claude/skills/2ndbrain-kb/, skills/2ndbrain/
   .github/workflows/kb-*.yml, .github/workflows/secrets.yml
   .github/ISSUE_TEMPLATE/
 

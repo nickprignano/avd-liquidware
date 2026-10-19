@@ -26,12 +26,30 @@ concurrency:
   group: kb-feedback-${{ github.event.issue.number }}
 
 jobs:
-  propose:
+  # Decision 0008: skip when a family directive pauses this workflow, or KB_PAUSED is set here.
+  gate:
     if: >-
       github.event.label.name == 'kb-accepted' &&
       (contains(github.event.issue.labels.*.name, 'kb-feedback') ||
        contains(github.event.issue.labels.*.name, 'kb-known-error') ||
        contains(github.event.issue.labels.*.name, 'kb-source'))
+    runs-on: ubuntu-latest
+    outputs:
+      paused: ${{ steps.gate.outputs.paused }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/kb/requirements.txt
+      - id: gate
+        env:
+          KB_PAUSED: ${{ vars.KB_PAUSED }}
+        run: python3 scripts/kb/directives.py gate kb-feedback
+
+  propose:
+    needs: gate
+    if: needs.gate.outputs.paused != 'true'
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

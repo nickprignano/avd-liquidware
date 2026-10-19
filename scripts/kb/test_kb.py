@@ -240,6 +240,78 @@ class FamilyTests(unittest.TestCase):
         validate.errors.clear()
 
 
+class DirectiveTests(unittest.TestCase):
+    TODAY = date(2026, 10, 18)
+    FAMILY = {"format_version": 1, "projects": [
+        {"id": "sib", "name": "Sib", "self": True, "focus": "y", "owns": ["y"]},
+        {"id": "hub", "name": "Hub", "repo": "octo/hub", "role": "reference", "focus": "x", "owns": ["x"]},
+        {"id": "quiet", "name": "Private layer", "role": "observer", "focus": "z", "owns": ["z"]},
+    ]}
+    DIRECTIVES = [
+        {"id": "d-20261018-1", "directive": "Pause the digest.", "scope": ["all"], "pause": ["kb-curator"],
+         "opened": "2026-10-18"},
+        {"id": "d-20261018-2", "directive": "Only the hub.", "scope": ["hub"], "pause": ["all"], "opened": "2026-10-18"},
+        {"id": "d-20261001-1", "directive": "Old.", "scope": ["all"], "pause": ["all"], "until": "2026-10-10",
+         "opened": "2026-10-01"},
+    ]
+
+    def setUp(self):
+        import directives
+        self.d = directives
+        p = mock.patch.object(kblib, "family", lambda: self.FAMILY)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_sibling_reads_the_hub(self):
+        seen = []
+        self.d.load(fetcher=lambda url: seen.append(url) or "directives: []\n")
+        self.assertEqual(seen, ["https://raw.githubusercontent.com/octo/hub/HEAD/docs/knowledge/directives.yaml"])
+        self.assertEqual(self.d.load(fetcher=lambda url: None)[0], [])
+
+    def test_scope_pause_and_expiry(self):
+        active = self.d.applicable(self.DIRECTIVES, "sib", self.TODAY)
+        self.assertEqual([x["id"] for x in active], ["d-20261018-1"])
+        self.assertTrue(self.d.pausing(self.DIRECTIVES, "kb-curator", "sib", self.TODAY))
+        self.assertFalse(self.d.pausing(self.DIRECTIVES, "kb-freshness", "sib", self.TODAY))
+        self.assertTrue(self.d.pausing(self.DIRECTIVES, "kb-freshness", "hub", self.TODAY))
+        self.assertEqual([x["id"] for x in self.d.expired(self.DIRECTIVES, self.TODAY)], ["d-20261001-1"])
+
+    def test_gate(self):
+        loader = lambda: (self.DIRECTIVES, "hub")  # noqa: E731
+        self.assertTrue(self.d.gate("kb-curator", self.TODAY, env={}, loader=loader)[0])
+        self.assertFalse(self.d.gate("kb-freshness", self.TODAY, env={}, loader=loader)[0])
+        self.assertTrue(self.d.gate("kb-freshness", self.TODAY, env={"KB_PAUSED": "true"}, loader=loader)[0])
+
+        def broken():
+            raise OSError("offline")
+        self.assertFalse(self.d.gate("kb-curator", self.TODAY, env={}, loader=broken)[0])
+
+    def test_observers_are_not_watched(self):
+        self.assertEqual(kblib.siblings(), [{"id": "hub", "name": "Hub", "repo": "octo/hub", "role": "reference",
+                                             "focus": "x", "owns": ["x"]}])
+        self.assertEqual(freshness.family_items(lambda p: {"format_version": 1}), [])
+
+    def test_schema_and_active_limit(self):
+        import validate
+        v = validate.schema("directive.schema.json")
+        self.assertEqual(list(v.iter_errors({"directives": self.DIRECTIVES})), [])
+        self.assertTrue(list(v.iter_errors({"directives": [{**self.DIRECTIVES[0], "reason": "why"}]})))
+        self.assertTrue(list(v.iter_errors({"directives": [{**self.DIRECTIVES[0], "directive": "x" * 281}]})))
+        fam = validate.schema("family.schema.json")
+        observer = {"id": "q", "name": "Q", "role": "observer", "repo": "octo/q", "focus": "z", "owns": ["z"]}
+        self.assertTrue(list(fam.iter_errors({"format_version": 1, "projects": [observer]})))
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        many = [{**self.DIRECTIVES[0], "id": f"d-20261018-{i}"} for i in range(6)]
+        kblib.Path(tmp / "directives.yaml").write_text(kblib.dump_yaml({"directives": many}))
+        validate.errors.clear()
+        with mock.patch.object(kblib, "DIRECTIVES", tmp / "directives.yaml"), mock.patch.object(validate, "ROOT", Path("/")):
+            validate.check_directives(self.TODAY)
+        self.assertEqual(len(validate.errors), 1)
+        self.assertIn("6 directives are active", validate.errors[0])
+        validate.errors.clear()
+
+
 class ExportTests(unittest.TestCase):
     """The 2ndbrain-public export builds, validates and passes its own tests. Skipped in the template."""
 
