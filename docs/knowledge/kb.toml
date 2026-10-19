@@ -9,6 +9,12 @@ user_agent = "avd-liquidware-kb-curator"
 topic_order = ["overview", "liquidware", "avd", "stratusphere", "azure", "deployment", "troubleshooting", "roadmap",
                "curation"]
 
+# Decision 0011: what the Stop hook does when code changed without a KB entry ("block", "warn" or
+# "off"). The kb-capture PR check runs either way. capture_ignore lists more paths that aren't code.
+# Warn mode for the pilot (decision 0014).
+capture_hook = "warn"
+capture_ignore = []
+
 # Structured data files listed in llms.txt, in order. A file that doesn't exist is skipped.
 [[data]]
 name = "Known errors"

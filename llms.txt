@@ -53,6 +53,8 @@ contribute, open a KB feedback or known-error issue; changes land only through r
 - [0011. Family format: a guard field on known errors](docs/knowledge/decisions/0011-family-format-guard-on-known-errors.md): proposed
 - [0012. Family format: the upstream asks file's path set in kb.toml](docs/knowledge/decisions/0012-family-format-upstream-path-in-kb-toml.md): proposed
 - [0013. Follow the family's model-selection convention](docs/knowledge/decisions/0013-family-model-selection-convention.md): proposed
+- [0014. Pilot the family's enforced knowledge capture, in warn mode](docs/knowledge/decisions/0014-family-format-enforced-kb-capture-pilot.md): accepted
+- [0015. Take handoffs from other Claude projects as `handoff` issues](docs/knowledge/decisions/0015-family-format-handoff-issues.md): accepted
 
 ## Related knowledge bases
 

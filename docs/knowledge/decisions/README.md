@@ -22,4 +22,6 @@ the family numbers its own decisions; refer to a sibling's as `<project> 0012`, 
 | [0011](0011-family-format-guard-on-known-errors.md) | Family format: a guard field on known errors | Proposed |
 | [0012](0012-family-format-upstream-path-in-kb-toml.md) | Family format: the upstream asks file's path set in kb.toml | Proposed |
 | [0013](0013-family-model-selection-convention.md) | Follow the family's model-selection convention | Proposed |
+| [0014](0014-family-format-enforced-kb-capture-pilot.md) | Pilot the family's enforced knowledge capture, in warn mode | Accepted |
+| [0015](0015-family-format-handoff-issues.md) | Take handoffs from other Claude projects as `handoff` issues | Accepted |
 <!-- END GENERATED: decision-index -->
