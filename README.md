@@ -27,8 +27,8 @@ stays the profile container. It also keeps a living knowledge base of what we le
 
 ## The knowledge base
 
-[docs/knowledge/](docs/knowledge/README.md) holds what this project has learned about Stratusphere
-in Azure, for people, tools and AI agents alike. It's one of a family of knowledge bases in the same
+[docs/knowledge/](docs/knowledge/README.md) holds what this project has learned about Liquidware
+products on virtual desktops in Azure, how they fit with AVD and FSLogix, and deployment gotchas, for people, tools and AI agents alike. It's one of a family of knowledge bases in the same
 format ([family.yaml](docs/knowledge/family.yaml)), and it keeps itself current with GitHub Actions
 alone: a weekly digest of what changed upstream, a monthly freshness check, and issue forms that turn
 field reports into pull requests. Read [llms.txt](llms.txt) for a map.
