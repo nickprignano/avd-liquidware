@@ -11,6 +11,13 @@ BeforeAll {
     HubVnet  = "$sub/resourceGroups/rg-hub/providers/Microsoft.Network/virtualNetworks/vnet-hub"
     Removed  = $false
   }
+  # Empty Az modules on PSModulePath, so the script's module checks and imports work unmocked.
+  $script:modulePath = $env:PSModulePath
+  foreach ($m in 'Az.Accounts', 'Az.Resources', 'Az.Network', 'Az.Compute', 'Az.KeyVault', 'Az.PrivateDns') {
+    $dir = New-Item -ItemType Directory -Path (Join-Path $TestDrive "modules/$m") -Force
+    Set-Content -Path (Join-Path $dir "$m.psm1") -Value '# test stand-in'
+  }
+  $env:PSModulePath = (Join-Path $TestDrive 'modules') + [System.IO.Path]::PathSeparator + $env:PSModulePath
   # Stand-ins for the Az cmdlets the script calls (and Install-Module, absent where PowerShellGet
   # is), so Pester can mock them without the modules.
   foreach ($c in 'Get-AzContext', 'Set-AzContext', 'Get-AzResourceGroup', 'Get-AzResource', 'Get-AzVirtualNetwork', 'Get-AzPrivateDnsZone',
@@ -25,14 +32,13 @@ BeforeAll {
 }
 
 AfterAll {
+  $env:PSModulePath = $script:modulePath
   Remove-Variable -Name LwTest -Scope Global -ErrorAction SilentlyContinue
 }
 
-Describe 'Deploy-LiquidwareTier.ps1 -Action Cleanup -ReportDirectory $TestDrive' {
+Describe 'Deploy-LiquidwareTier.ps1 -Action Cleanup' {
   BeforeEach {
     $global:LwTest.Removed = $false
-    Mock Get-Module { [pscustomobject]@{ Name = 'Az' } } -ParameterFilter { $ListAvailable }
-    Mock Import-Module { } -ParameterFilter { "$Name" -like 'Az.*' }
     Mock Install-Module { }
     Mock Get-AzContext { [pscustomobject]@{ Subscription = [pscustomobject]@{ Name = 'sandbox' } } }
     Mock Get-AzResourceGroup {
