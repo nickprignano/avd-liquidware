@@ -28,6 +28,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
@@ -38,6 +39,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r scripts/kb/requirements.txt
+      - name: Directives are owner-only (decision 0008)
+        if: github.event_name == 'pull_request' && github.event.pull_request.user.login != github.repository_owner
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename' \
+              | grep -qx 'docs/knowledge/directives.yaml'; then
+            echo "::error file=docs/knowledge/directives.yaml::Only the repo owner may change directives.yaml"
+            exit 1
+          fi
       - name: Schema, links and leak patterns
         run: python3 scripts/kb/validate.py
       - name: Generated files in sync

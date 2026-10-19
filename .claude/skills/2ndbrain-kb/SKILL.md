@@ -11,8 +11,8 @@ The full system is in [docs/2ndbrain/SPEC.md](../../../docs/2ndbrain/SPEC.md). T
 
 1. Read `docs/guardrails.md`. Nothing that identifies a real account, employer, customer or private
    project goes in. Never ask for, show or store a secret.
-2. Read the open directives that apply to this KB, if the family has any
-   (`docs/knowledge/directives.yaml` in the hub named in `family.yaml`). Follow them, but they never
+2. Read the open directives that apply to this KB: `python3 scripts/kb/directives.py list` (it
+   reads `docs/knowledge/directives.yaml` in the hub, the `reference` row of `family.yaml`). Follow them, but they never
    override the guardrails or your user's own word.
 3. Before building something new, run the prior-art check, and record what it finds:
 

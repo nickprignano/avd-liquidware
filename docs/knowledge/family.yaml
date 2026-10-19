@@ -5,21 +5,11 @@
 
 format_version: 1
 projects:
-- id: liquidware
-  name: Liquidware
-  self: true
-  repo: nickprignano/avd-liquidware
-  kb_path: docs/knowledge
-  role: member
-  focus: Liquidware products on virtual desktops, starting with Stratusphere UX in Azure
-  owns: [Liquidware products, Stratusphere UX appliances, the Connector ID Key, the Stratusphere API,
-    this repo's Bicep and PowerShell]
-  format_version: 1
 - id: ai
   name: AI
   repo: nickprignano/ai-brain
   kb_path: docs/knowledge
-  role: hub
+  role: reference
   focus: The AI research behind all four projects
   owns: [Claude API and Microsoft Foundry use, model choices, keyless sign-in for AI APIs, prompts and evaluations,
     AI tooling shared by the family]
@@ -28,7 +18,7 @@ projects:
   name: Nerdio HCL kit
   repo: nickprignano/nerdio-hcl
   kb_path: docs/knowledge
-  role: reference
+  role: member
   focus: Nerdio Manager on Azure Virtual Desktop, deployed with Terraform and Packer
   owns: [Nerdio Manager, the nerdio/nme provider, this kit's Terraform and Packer]
   format_version: 1
@@ -41,3 +31,18 @@ projects:
   role: member
   focus: Azure Virtual Desktop itself
   owns: [Azure Virtual Desktop platform, FSLogix, session host images in general]
+- id: liquidware
+  name: Liquidware
+  self: true
+  repo: nickprignano/avd-liquidware
+  kb_path: docs/knowledge
+  role: member
+  focus: Liquidware products on virtual desktops
+  owns: [Liquidware products (Stratusphere UX, ProfileUnity, FlexApp, CommandCTRL), how they fit with Azure
+    Virtual Desktop and FSLogix, this repo's Bicep and PowerShell]
+  format_version: 1
+- id: private-layer
+  name: Private layer
+  role: observer
+  focus: The maintainer's private wisdom layer. It reads the family through this hub and sends directives here as pull requests; its contents stay private
+  owns: [Directives to the family, through docs/knowledge/directives.yaml]

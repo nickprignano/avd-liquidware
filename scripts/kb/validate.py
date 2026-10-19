@@ -10,6 +10,7 @@ Checks:
     and KB paths they reference exist
   - experts.yaml statuses match their scores, and tracked experts match sources.toml
   - family.yaml has one self entry, and sources.toml watches each linked sibling's decisions and KB
+  - directives.yaml (if present) matches its schema, with at most five active directives
   - relative links and #anchors in KB pages and llms.txt resolve
   - no email addresses or public IPv4 addresses (the no-leak rule; gitleaks covers secrets)
 
@@ -23,6 +24,7 @@ import json
 import re
 import sys
 import tomllib
+from datetime import date
 from pathlib import Path
 
 from jsonschema import Draft202012Validator
@@ -97,9 +99,11 @@ def check_data() -> None:
         (kblib.FIELD_REPORTS, "field-reports.schema.json"),
         (kblib.EXPERTS, "experts.schema.json"),
         (kblib.FAMILY, "family.schema.json"),
+        (kblib.DIRECTIVES, "directive.schema.json"),
     ]
     for path, schema_name in files:
-        if path == kblib.UPSTREAM and not path.exists():  # optional: not every KB tracks upstream asks
+        # Optional: not every KB tracks upstream asks, and only the hub keeps directives.
+        if path in (kblib.UPSTREAM, kblib.DIRECTIVES) and not path.exists():
             continue
         data = kblib.load_yaml(path)
         check_schema(schema(schema_name), data, path, "data")
@@ -115,6 +119,22 @@ def check_data() -> None:
     for r in (kblib.load_yaml(kblib.FIELD_REPORTS) or {}).get("reports", []):
         if not kb_path_exists(str(r.get("page", ""))):
             error(kblib.FIELD_REPORTS, f"issue {r.get('issue')}: page {r.get('page')!r} doesn't exist")
+
+
+def check_directives(today: date | None = None) -> None:
+    """At most five active directives (decision 0008); dates must parse."""
+    if not kblib.DIRECTIVES.exists():
+        return
+    today = today or date.today()
+    active = 0
+    for d in (kblib.load_yaml(kblib.DIRECTIVES) or {}).get("directives", []) or []:
+        try:
+            if d.get("until") is None or date.fromisoformat(str(d["until"])) >= today:
+                active += 1
+        except ValueError:
+            error(kblib.DIRECTIVES, f"{d.get('id')}: until must be YYYY-MM-DD")
+    if active > kblib.MAX_DIRECTIVES:
+        error(kblib.DIRECTIVES, f"{active} directives are active; at most {kblib.MAX_DIRECTIVES} may be")
 
 
 def check_experts() -> None:
@@ -198,6 +218,7 @@ def main() -> int:
     check_data()
     check_experts()
     check_family()
+    check_directives()
     md_files = sorted(KB_DIR.rglob("*.md")) + [kblib.LLMS_TXT]
     for p in md_files:
         check_links(p)

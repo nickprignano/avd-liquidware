@@ -21,4 +21,5 @@ the family numbers its own decisions; refer to a sibling's as `<project> 0012`, 
 | [0010](0010-prefer-azure-github-hashicorp-oss.md) | Prefer Azure-native, GitHub, HashiCorp and open-source tooling | Proposed |
 | [0011](0011-family-format-guard-on-known-errors.md) | Family format: a guard field on known errors | Proposed |
 | [0012](0012-family-format-upstream-path-in-kb-toml.md) | Family format: the upstream asks file's path set in kb.toml | Proposed |
+| [0013](0013-family-model-selection-convention.md) | Follow the family's model-selection convention | Proposed |
 <!-- END GENERATED: decision-index -->

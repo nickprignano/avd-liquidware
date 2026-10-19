@@ -7,8 +7,8 @@ the layers, the format, the loops that keep a KB current, how sibling KBs stay a
 optional private layer above them. Agents working in a 2ndbrain repo follow the
 [2ndbrain-kb skill](../../.claude/skills/2ndbrain-kb/SKILL.md), which is this spec turned into steps.
 
-Status: version 1 of the family format, in use by four project KBs. Parts marked **(proposed)** are
-written up as decisions but not yet accepted or built.
+Status: version 1 of the family format, in use by four project KBs. Format ownership and
+directives (decisions 0007 and 0008) are accepted and built in the hub; siblings adopt them by PR.
 
 ## 1. Layers
 
@@ -38,7 +38,7 @@ Open, common formats only:
   `status`, `date` and `decision-makers` in front matter. A decision stays `proposed` until the
   maintainer says yes, and a reversal gets a new record that supersedes the old one.
 - **Structured data:** YAML files, each with a JSON Schema in `schema/`. They cover known errors,
-  field reports, the experts study, the family and, **(proposed)**, directives. The Markdown tables
+  field reports, the experts study, the family and directives. The Markdown tables
   are generated from them.
 - **Generated blocks:** sit between `BEGIN GENERATED` and `END GENERATED` comments. You edit the
   source, never the output.
@@ -70,7 +70,8 @@ to 3. A total of 10 or more is tracked, 6 or more goes on the watch list.
 ## 4. The family
 
 `docs/knowledge/family.yaml` lists every KB in the family, this one included (`self: true`), with
-its repo, KB path, role (`reference`, `hub`, `member`, and **(proposed)** `observer`), focus, what
+its repo, KB path, role (`reference` for the KB that owns the format and is the hub, `member`, or `observer` for a
+private layer with no repo; `hub` is the older name), focus, what
 it's the source of truth for, and the format version it follows.
 
 - **Watch each other.** Each sibling with a repo gets two `github_commits` sources in this KB: one
@@ -78,7 +79,7 @@ it's the source of truth for, and the format version it follows.
 - **Link, don't copy.** A fact that belongs to a sibling's topic is linked, never copied. If two
   KBs disagree, the one closer to the topic is the source of truth.
 - **Share the format, not the content.** Format changes start as a "Family format: ..." decision in
-  the KB that owns the format, which **(proposed)** is the hub. Each sibling adopts the change by
+  the KB that owns the format, which is the hub (the `reference` row). Each sibling adopts the change by
   PR, and `format_version` goes up once all of them have merged it. The freshness check flags a
   sibling on another version.
 - **Cross-project decisions** are recorded in each affected KB, and each record says where else
@@ -98,18 +99,18 @@ The same in every KB, worded for each one's topic:
 6. **Every step works from a browser.**
 7. **Every decision and lesson goes into the KB.**
 
-## 6. Directives and the pause switch (proposed)
+## 6. Directives and the pause switch
 
 One owner-only `directives.yaml` in the hub tells the whole family something at once.
 
 - **Entries:** each has an `id`, the `directive` (at most 280 characters), a `scope` (`all` or
   family ids), an optional `pause` list of `kb-*` workflows, an optional `until` date and an
   `opened` date. There's no field for reasons: a directive carries only the instruction.
-- **Only the owner's merge counts,** enforced by CODEOWNERS and `validate.py`. At most five
-  directives can be active at once.
+- **Only the owner's merge counts,** enforced by CODEOWNERS and a `kb-validate` step that fails a PR
+  changing the file unless the repo owner opened it. `validate.py` allows at most five active.
 - **Fan-out:** every KB's automated `kb-*` runs read the file from the public hub first and skip
-  when a pause covers them. A daily `kb-directives` workflow opens a local pointer issue for each
-  directive. No repo holds a credential for another.
+  when a pause covers them (`scripts/kb/directives.py gate`). A daily `kb-directives` workflow
+  opens a local pointer issue for each directive in scope and closes it when the directive goes. No repo holds a credential for another.
 - **Instant stop:** a `KB_PAUSED` repository variable stops that repo's automation at once.
   `kb-validate` and the secret scan always run.
 

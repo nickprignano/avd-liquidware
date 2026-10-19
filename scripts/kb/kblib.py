@@ -24,6 +24,8 @@ EXPERTS = KB_DIR / "experts.yaml"
 SOURCES = KB_DIR / "sources.toml"
 FAMILY = KB_DIR / "family.yaml"
 KB_TOML = KB_DIR / "kb.toml"
+DIRECTIVES = KB_DIR / "directives.yaml"
+MAX_DIRECTIVES = 5
 
 # The experts study (experts.md): five scores of 0-3, plus pass/fail gates.
 TRACK_AT = 10
@@ -144,9 +146,10 @@ def family() -> dict:
 
 
 def siblings(data: dict | None = None) -> list[dict]:
-    """Sibling KBs whose repo is known; a row without a repo isn't linked yet."""
+    """Sibling KBs whose repo is known; a row without a repo isn't linked yet. Observers aren't watched."""
     data = family() if data is None else data
-    return [p for p in data.get("projects", []) if not p.get("self") and p.get("repo")]
+    return [p for p in data.get("projects", [])
+            if not p.get("self") and p.get("repo") and p.get("role") != "observer"]
 
 
 def kb_path(project: dict) -> str:

@@ -9,7 +9,7 @@
   "properties": {
     "title": {"type": "string", "minLength": 3, "description": "Same as the page's H1."},
     "summary": {"type": "string", "minLength": 10, "maxLength": 200, "description": "One line; used in the KB index and llms.txt."},
-    "topic": {"enum": ["overview", "stratusphere", "azure", "liquidware", "troubleshooting", "roadmap", "curation"]},
+    "topic": {"enum": ["overview", "liquidware", "avd", "stratusphere", "azure", "deployment", "troubleshooting", "roadmap", "curation"]},
     "status": {
       "enum": ["verified", "partial", "unverified", "plan"],
       "description": "verified: checked against a primary source or a real run. partial: some claims are still marked unverified inline. unverified: not yet checked. plan: describes intended work, not facts."

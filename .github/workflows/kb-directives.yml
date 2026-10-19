@@ -1,0 +1,33 @@
+name: kb-directives
+
+# Daily: read the family's maintainer directives from the hub (decision 0008) and keep one open
+# issue labelled kb-directive per active directive in this KB's scope, closing it once the directive
+# is removed or expires. Reads the hub's public file with no credential and writes issues only in
+# this repo, with its own token. Not gated: a pause directive should still be visible here.
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  pointers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r scripts/kb/requirements.txt
+      - name: Label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh label create kb-directive --color b60205 --description "Maintainer directive for this KB" --force
+      - name: Sync pointer issues
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/kb/directives.py sync-issues

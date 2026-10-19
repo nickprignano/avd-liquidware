@@ -4,9 +4,10 @@
 
 name = "avd-liquidware"
 title = "Liquidware knowledge base"
-tagline = "A living knowledge base of findings, gotchas and decisions for running Liquidware Stratusphere UX in Azure, from Marketplace appliances to the Connector ID Key and the API, shared by a family of sibling knowledge bases that use the same format."
+tagline = "A living knowledge base of findings, gotchas and decisions for running Liquidware products on virtual desktops in Azure: Stratusphere UX, ProfileUnity, FlexApp and CommandCTRL, how they fit with Azure Virtual Desktop and FSLogix, and what trips up a deployment. Shared by a family of sibling knowledge bases that use the same format."
 user_agent = "avd-liquidware-kb-curator"
-topic_order = ["overview", "stratusphere", "azure", "liquidware", "troubleshooting", "roadmap", "curation"]
+topic_order = ["overview", "liquidware", "avd", "stratusphere", "azure", "deployment", "troubleshooting", "roadmap",
+               "curation"]
 
 # Structured data files listed in llms.txt, in order. A file that doesn't exist is skipped.
 [[data]]
