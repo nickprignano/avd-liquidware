@@ -189,7 +189,7 @@ Two Nerdio-specific checks go into V12: whether a scripted action can be guarant
 **Yes, there is a fit,** but as a support tool, not as monitoring and not as an actor.
 
 1. **Session-host support.** Real-time process, logon and resource view on a multi-session host while a user is on the phone, plus DVR history for "it was slow at 10:05". Complements AVD Insights, which shows connection health but not what a process did.
-2. **The devices users connect from.** Agents exist for Windows (including ARM), macOS, Linux, IGEL OS 12 and eLux, so one tool covers the session host *and* the thin client. This links to the clean-room thin-client spec, drafted separately.
+2. **The devices users connect from.** Agents exist for Windows (including ARM), macOS, Linux, IGEL OS 12 and eLux, so one tool covers the session host *and* the thin client.
 3. **Liquidware diagnostics in one place.** CommandCTRL 1.5 collects ProfileUnity and Stratusphere product diagnostics and arbitrary log files without a remote session, which shortens ProfileUnity support cases.
 4. **Cheap to try.** The Community Edition is free for 5 machines with 24-hour history: enough for spike L0 at $0 license cost.
 
@@ -298,6 +298,6 @@ Checked 2026-10-18 from vendor pages. "Verify" items are gates for spike L0.
 
 1. ~~**Where it lives (S2).**~~ Decided 2026-10-18: its own repo, this one. The Nerdio scripted action lives here too, under `scripts/nerdio/`.
 2. **P2 (ProfileDisk) at all?** Recommended: keep it gated and don't spend spike time on it unless a customer asks.
-3. **CommandCTRL scope:** session hosts only, or the thin-client devices too? Recommended: both, since cross-platform agents are its main edge.
+3. **CommandCTRL scope:** session hosts only, or the devices users connect from too? Recommended: both, since cross-platform agents are its main edge.
 4. **AI Insights:** keep off, or test with the project's own Claude credentials in L0? Recommended: off for L0; a later decision.
 5. **Spike timing:** run L0 now, or after the Graph sign-in app and S1a spike finish? Recommended: paper checks now, sandbox run after those.
