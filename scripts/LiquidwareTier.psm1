@@ -498,6 +498,23 @@ function Get-LwCleanupPlan {
   $steps.ToArray()
 }
 
+function Get-LwLastCopyCheck {
+  # Never delete the last copy (avd-second-brain decision 0016). The tier resource group holds the
+  # live ProfileUnity configuration, the FlexApp packages, the console and, outside dev, its backup:
+  # nothing else holds a copy, so removing it needs -DiscardLastCopy. -Force only skips the question.
+  #   Steps: Get-LwCleanupPlan's output.
+  [CmdletBinding()]
+  param(
+    [AllowEmptyCollection()] [object[]] $Steps = @(),
+    [switch] $DiscardLastCopy
+  )
+  $group = @($Steps | Where-Object { $_ -and $_.Kind -eq 'ResourceGroup' })
+  if ($group.Count -eq 0) { return }
+  $what = "$($group[0].Name) holds the only copy of the live ProfileUnity configuration, the FlexApp packages and the console (and its backup outside dev)"
+  if ($DiscardLastCopy) { return Get-LwCheckResult WARN 'last-copy' "$what. Removing it anyway: -DiscardLastCopy was given." -Category Cleanup }
+  Get-LwCheckResult FAIL 'last-copy' "$what. Nothing was removed." -Recommendation 'Copy what you need to keep somewhere outside this resource group and check the copy, then run Cleanup again with -DiscardLastCopy.' -Category Cleanup
+}
+
 function Get-LwTeardownCheck {
   # Teardown evidence: after Cleanup, nothing in Get-LwCleanupPlan is left (deploy-spec section 13).
   [CmdletBinding()]
@@ -557,4 +574,4 @@ function Get-LwPlanSummary {
   }
 }
 
-Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwMediaLockEntry, Get-LwDeletedVault, Get-LwCleanupPlan, Get-LwTeardownCheck, Get-LwRunCommandResult, Get-LwPlanSummary
+Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwMediaLockEntry, Get-LwDeletedVault, Get-LwCleanupPlan, Get-LwLastCopyCheck, Get-LwTeardownCheck, Get-LwRunCommandResult, Get-LwPlanSummary

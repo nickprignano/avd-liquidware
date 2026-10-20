@@ -22,7 +22,7 @@ Every VM carries the tag `stratusphere-role` (`hub`, `database`, `collector-<n>`
 | `Check` | Resource group; each appliance exists, is running and has its static IP; NSG rules for the roles present; NAT Gateway with default outbound access off; Key Vault holds the credential; Marketplace terms. Each failure names its fix. Ends `RESULT PASS` or `RESULT FAIL` |
 | `Deploy` | Registers the resource providers, accepts the terms, recovers a soft-deleted Key Vault, and deploys the roles asked for plus the ones that already exist. Then runs Check and prints the console steps for each role |
 | `Fix` | Runs Check, then only what repairs it, in order: accept terms, recover the vault, one redeployment (puts back a missing VM, a dynamic IP, a failed provisioning, NSG rules, egress), start stopped VMs. Checks again. What it can't repair safely (a lost password) is listed |
-| `Cleanup` | `-Role Collector` or `-Role Database` removes those VMs with their disks and NICs. `-Role Hub` removes the whole environment and the peering on the other VNet. Asks first (`-Force` skips); `-WhatIf` lists what would go |
+| `Cleanup` | `-Role Collector` or `-Role Database` removes those VMs with their disks and NICs. `-Role Hub` removes the whole environment and the peering on the other VNet. Asks first (`-Force` skips); `-WhatIf` lists what would go. The Hub and the Database hold the only copy of the assessment data, so removing either also needs `-DiscardLastCopy`, after you have exported what you need and checked the copy (never delete the last copy, avd-second-brain decision 0016). `-Force` never implies it |
 
 Results also go to `output/stratusphere-<action>-<time>.json` (git-ignored).
 

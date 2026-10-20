@@ -47,6 +47,9 @@ param(
   [string] $ReportDirectory = '',
   # Deploy and Cleanup without asking.
   [switch] $Force,
+  # Cleanup: remove the tier resource group although it holds the only copy of the tier's data
+  # (decision 0016 in avd-second-brain). -Force never implies it.
+  [switch] $DiscardLastCopy,
   [switch] $Bastion
 )
 
@@ -159,6 +162,10 @@ if ($Action -eq 'Cleanup') {
   $steps = @(Get-LwCleanupPlan -Names $names -TierGroupExists $before.TierGroupExists -Peering $before.Peering -DnsLink $before.DnsLink)
   if ($steps.Count -eq 0) { Add-Result (Get-LwCheckResult PASS 'cleanup' 'Nothing of the tier is left to remove.' -Category Cleanup) }
   foreach ($st in $steps) { Add-Result (Get-LwCheckResult INFO 'cleanup-step' "$($st.Kind) $($st.Name)$(if ($st.Parent) { " on $($st.Parent)" })" -Category Cleanup) }
+  $lastCopy = Get-LwLastCopyCheck -Steps $steps -DiscardLastCopy:$DiscardLastCopy
+  if ($lastCopy) { Add-Result $lastCopy }
+  # -WhatIf still lists the steps; a real run stops here.
+  if ($lastCopy.Status -eq 'FAIL' -and -not $WhatIfPreference) { Complete-Run }
   if ($steps.Count -gt 0 -and (Confirm-Step -Target $names.TierGroup -What "Remove the $($steps.Count) items above" -Force:$Force)) {
     foreach ($st in $steps) {
       try {
