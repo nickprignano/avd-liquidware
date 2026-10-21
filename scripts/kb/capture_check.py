@@ -151,9 +151,9 @@ def run_hook(stdin=sys.stdin, root: Path = ROOT) -> int:
         event = {}
     try:
         path = state_file(root)
-        state = json.loads(path.read_text()) if path.exists() else {}
+        state = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         out = hook_decision(event, session_changes(root), load_config(root), state)
-        path.write_text(json.dumps(dict(list(state.items())[-50:])))
+        path.write_text(json.dumps(dict(list(state.items())[-50:])), encoding="utf-8")
     except Exception as exc:  # a broken check must never trap a session
         print(f"kb-capture skipped: {exc}", file=sys.stderr)
         return 0
@@ -189,7 +189,7 @@ def run_pr(base: str, root: Path = ROOT) -> int:
     event_path = os.environ.get("GITHUB_EVENT_PATH")
     pr = {}
     if event_path and Path(event_path).exists():
-        pr = json.loads(Path(event_path).read_text()).get("pull_request", {})
+        pr = json.loads(Path(event_path).read_text(encoding="utf-8")).get("pull_request", {})
     files = git("diff", "--name-only", f"{base}...HEAD", root=root)
     ok, msg = pr_verdict(files, [lb["name"] for lb in pr.get("labels", [])], pr.get("body") or "",
                          (pr.get("user") or {}).get("login", ""), load_config(root))
