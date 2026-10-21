@@ -23,7 +23,7 @@ the VMs isn't enough on its own.
   script recovers it.
 - **Cheaper console access.** One small desktop peered to the assessment VNet can replace Bastion
   as the way into the consoles. Deallocate it between sittings. The landing zone's opt-in jumpbox
-  ([avd-landing-zone decision 0018](https://github.com/nickprignano/avd-landing-zone/blob/master/build/decisions/0018-jumpbox-bastion-developer.md)) is a Linux VM in the spoke reached through Bastion
+  ([avd-landing-zone decision 0019](https://github.com/nickprignano/avd-landing-zone/blob/master/build/decisions/0019-jumpbox-bastion-developer.md)) is a Linux VM in the spoke reached through Bastion
   Developer. Bastion Developer itself does not follow peering, so it can't reach VMs in a peered
   assessment VNet directly.
 
