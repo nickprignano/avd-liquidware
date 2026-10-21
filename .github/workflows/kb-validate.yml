@@ -1,24 +1,13 @@
 name: kb-validate
 
-# Checks the knowledge base on every change to it: front matter and YAML against the JSON Schemas,
+# Checks the knowledge base on every pull request (so it can be a required check, decision 0016)
+# and on every push of it to main: front matter and YAML against the JSON Schemas,
 # MADR decision records, links and anchors, leak patterns, generated files (indexes, tables,
 # llms.txt) in sync, the family checks, and the KB scripts' unit tests. Secrets are covered by gitleaks
 # in secrets.yml.
 
 on:
   pull_request:
-    paths:
-      - docs/knowledge/**
-      - scripts/kb/**
-      - llms.txt
-      - .github/ISSUE_TEMPLATE/**
-      - .github/workflows/kb-*.yml
-      - docs/2ndbrain/**
-      - docs/guardrails.md
-      - .claude/skills/**
-      - skills/**
-      - template/**
-      - AGENTS.md
   push:
     branches: [main]
     paths:
