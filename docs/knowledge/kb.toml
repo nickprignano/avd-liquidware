@@ -15,6 +15,12 @@ topic_order = ["overview", "liquidware", "avd", "stratusphere", "azure", "deploy
 capture_hook = "warn"
 capture_ignore = []
 
+# Decision 0016 (ai-brain 0014): a PR whose every changed file is in auto_merge_paths, and none in
+# the fixed deny list in scripts/kb/auto_merge.py, merges itself on green through the kb-auto-merge
+# workflow. Off until the owner has set up the repo; its own PR turns it on.
+auto_merge = "off"
+auto_merge_paths = ["docs/knowledge/**", "llms.txt"]
+
 # Structured data files listed in llms.txt, in order. A file that doesn't exist is skipped.
 [[data]]
 name = "Known errors"
