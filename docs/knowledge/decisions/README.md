@@ -24,5 +24,5 @@ the family numbers its own decisions; refer to a sibling's as `<project> 0012`, 
 | [0013](0013-family-model-selection-convention.md) | Follow the family's model-selection convention | Proposed |
 | [0014](0014-family-format-enforced-kb-capture-pilot.md) | Pilot the family's enforced knowledge capture, in warn mode | Accepted |
 | [0015](0015-family-format-handoff-issues.md) | Take handoffs from other Claude projects as `handoff` issues | Accepted |
-| [0016](0016-family-format-github-work-conventions.md) | Follow the family's GitHub work conventions, with low-risk PRs merging themselves | Proposed |
+| [0016](0016-family-format-github-work-conventions.md) | Follow the family's GitHub work conventions, with low-risk PRs merging themselves | Accepted |
 <!-- END GENERATED: decision-index -->
