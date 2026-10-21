@@ -35,6 +35,7 @@
 .EXAMPLE
   ./scripts/ops/Deploy-Stratusphere.ps1 -Action Cleanup -Role Collector
   ./scripts/ops/Deploy-Stratusphere.ps1 -Action Cleanup -Role Hub -WhatIf
+  (a real Cleanup of the Hub or Database also needs -DiscardLastCopy, once the assessment data is exported)
 #>
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -52,7 +53,10 @@ param(
   [switch] $NoBastion,
   [string] $ParameterFile = '',
   # Cleanup without asking.
-  [switch] $Force
+  [switch] $Force,
+  # Cleanup of the Hub or Database: remove them although they hold the only copy of the assessment
+  # data (decision 0016 in avd-second-brain). -Force never implies it.
+  [switch] $DiscardLastCopy
 )
 
 $ErrorActionPreference = 'Stop'
@@ -394,9 +398,10 @@ switch ($Action) {
     }
   }
   'Cleanup' {
-    $plan = Get-SsuxCleanupPlan -Role $Role -Existing $existing -ResourceGroupName $rgName
+    $plan = Get-SsuxCleanupPlan -Role $Role -Existing $existing -ResourceGroupName $rgName -DiscardLastCopy:$DiscardLastCopy
     $plan.Notes | ForEach-Object { Write-Host "NOTE   $_" }
-    if ($plan.Scope -eq 'ResourceGroup') {
+    if ($plan.Blocked) { Add-Result (Get-SsuxCheckResult FAIL 'last-copy' "$($plan.Blocked) Nothing was removed.") }
+    elseif ($plan.Scope -eq 'ResourceGroup') {
       if (-not (Get-AzResourceGroup -Name $rgName -ErrorAction SilentlyContinue)) { Add-Result (Get-SsuxCheckResult PASS 'cleanup' "$rgName does not exist") }
       elseif ($PSCmdlet.ShouldProcess($rgName, 'Remove the resource group and everything in it') -and
         ($Force -or $PSCmdlet.ShouldContinue("Remove $rgName and every appliance, disk and secret in it?", 'Cleanup'))) {

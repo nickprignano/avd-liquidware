@@ -67,7 +67,7 @@ Describe 'Deploy-LiquidwareTier.ps1 -Action Cleanup' {
   }
 
   It 'removes only the tier peering, the two tier DNS links and the tier resource group, then passes the teardown check' {
-    & $script:entry -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Cleanup -ReportDirectory $TestDrive
+    & $script:entry -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Cleanup -ReportDirectory $TestDrive -DiscardLastCopy
     $LASTEXITCODE | Should -Be 0
     Should -Invoke Remove-AzVirtualNetworkPeering -Times 1 -Exactly -ParameterFilter { $Name -eq 'peer-avdlz-dev-to-liquidware' -and $VirtualNetworkName -eq 'vnet-avdlz-dev' -and $ResourceGroupName -eq 'rg-avdlz-dev-network' }
     Should -Invoke Remove-AzVirtualNetworkPeering -Times 1 -Exactly
@@ -80,9 +80,19 @@ Describe 'Deploy-LiquidwareTier.ps1 -Action Cleanup' {
     ($report.results | Where-Object check -eq 'teardown').status | Should -Be 'PASS'
   }
 
+  It 'removes nothing without -DiscardLastCopy, and does not ask (never delete the last copy)' {
+    & $script:entry -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Cleanup -ReportDirectory $TestDrive
+    $LASTEXITCODE | Should -Be 1
+    Should -Invoke Write-Host -ParameterFilter { "$Object" -match 'FAIL\s+last-copy' }
+    Should -Invoke Read-Host -Times 0
+    Should -Invoke Remove-AzResourceGroup -Times 0
+    Should -Invoke Remove-AzVirtualNetworkPeering -Times 0
+    Should -Invoke Remove-AzPrivateDnsVirtualNetworkLink -Times 0
+  }
+
   It 'removes nothing when the operator does not type the resource group name' {
     Mock Read-Host { 'no' }
-    & $script:entry -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Cleanup -ReportDirectory $TestDrive
+    & $script:entry -NamePrefix avdlz -Environment dev -Component ProfileUnity -Action Cleanup -ReportDirectory $TestDrive -DiscardLastCopy
     Should -Invoke Write-Host -Times 4 -Exactly -ParameterFilter { "$Object" -match 'INFO\s+cleanup-step' }
     Should -Invoke Remove-AzResourceGroup -Times 0
     Should -Invoke Remove-AzVirtualNetworkPeering -Times 0

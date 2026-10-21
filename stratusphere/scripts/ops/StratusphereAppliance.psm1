@@ -236,15 +236,24 @@ function Get-SsuxCleanupPlan {
   # Collector or Database: remove those VMs (their disks and NICs go with them).
   # Hub: remove the whole environment, since nothing else works without it.
   [CmdletBinding()]
+  # Never delete the last copy (avd-second-brain decision 0016): the Hub and the Database hold the
+  # assessment data, and nothing else holds a copy until it is exported. Removing either needs
+  # -DiscardLastCopy; Blocked says why when it is missing.
   param(
     [Parameter(Mandatory)] [string[]] $Role,
     # Existing appliances: Role, Name
     [AllowEmptyCollection()] [object[]] $Existing = @(),
-    [Parameter(Mandatory)] [string] $ResourceGroupName
+    [Parameter(Mandatory)] [string] $ResourceGroupName,
+    [switch] $DiscardLastCopy
   )
+  $dataRoles = @($Role | Where-Object { $_ -in 'Hub', 'Database' })
+  $blocked = ''
+  if ($dataRoles.Count -and -not $DiscardLastCopy) {
+    $blocked = "The $($dataRoles -join ' and ') hold the only copy of the assessment data. Export what you need (reports, CSV) to somewhere outside $ResourceGroupName and check it, then run Cleanup again with -DiscardLastCopy."
+  }
   if ($Role -contains 'Hub') {
     return [pscustomobject]@{
-      Scope = 'ResourceGroup'; Target = @($ResourceGroupName)
+      Scope = 'ResourceGroup'; Target = @($ResourceGroupName); Blocked = $blocked
       Notes = @(
         "Removes $ResourceGroupName and everything in it, and the peering on the other VNet if there is one."
         'The Key Vault stays soft-deleted for 7 days (purge protection); the next Deploy recovers it with the same password.'
@@ -256,7 +265,7 @@ function Get-SsuxCleanupPlan {
   if ($Role -contains 'Database' -and @($Existing | Where-Object Role -eq 'Hub').Count -gt 0) {
     $notes += 'Point the Hub back at its own database first (Hub Administration > Database), or it loses its data store.'
   }
-  [pscustomobject]@{ Scope = 'Vm'; Target = $vms; Notes = $notes }
+  [pscustomobject]@{ Scope = 'Vm'; Target = $vms; Notes = $notes; Blocked = $blocked }
 }
 
 function Get-SsuxRandomPassword {

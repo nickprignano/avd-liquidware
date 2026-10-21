@@ -3,7 +3,7 @@ title: "Deployment gotchas"
 summary: "What trips up a Liquidware deployment in Azure, across products, with a link to where each is explained"
 topic: deployment
 status: partial
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # Deployment gotchas
@@ -22,6 +22,9 @@ explains it; errors with an exact message are in
   hub route silently stops them ([azure/networking.md](../azure/networking.md)).
 - An appliance keeps the password it was created with, so reruns must reuse it
   ([stratusphere/appliances.md](../stratusphere/appliances.md)).
+- The Hub and the Database appliance hold the only copy of the assessment data: removing either
+  deletes it. Export first; `Cleanup` refuses without `-DiscardLastCopy`
+  ([avd-second-brain decision 0016](https://github.com/nickprignano/avd-second-brain/blob/main/docs/knowledge/decisions/0016-never-delete-the-last-copy.md)).
 
 ## ProfileUnity, FlexApp and CommandCTRL
 
@@ -34,6 +37,9 @@ explains it; errors with an exact message are in
   ([tier spec, facts](../../spec.md#12-facts-and-what-is-still-unverified)).
 - FlexApp Sandbox Isolation needs nested virtualization in the VM
   ([avd/fit-with-avd-and-fslogix.md](../avd/fit-with-avd-and-fslogix.md)).
+- The tier resource group holds the only copy of the live ProfileUnity configuration, the FlexApp
+  packages and the console. Copy them out and check the copy before `Cleanup`, which refuses
+  without `-DiscardLastCopy` ([deploy spec section 11](../../deploy-spec.md#11-actions)).
 
 ## Any Azure lab
 

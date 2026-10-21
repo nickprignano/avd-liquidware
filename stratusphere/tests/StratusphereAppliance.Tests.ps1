@@ -154,6 +154,14 @@ Describe 'Get-SsuxCleanupPlan' {
     $p.Scope | Should -Be 'ResourceGroup'
     $p.Notes -join ' ' | Should -Match 'soft-deleted.*recovers'
   }
+  It 'removes Collectors without -DiscardLastCopy: they hold no data of their own' {
+    (Get-SsuxCleanupPlan -Role Collector -Existing $script:existing -ResourceGroupName 'rg').Blocked | Should -BeNullOrEmpty
+  }
+  It 'refuses the Hub or the Database, the only copy of the assessment data, without -DiscardLastCopy' {
+    (Get-SsuxCleanupPlan -Role Hub -Existing $script:existing -ResourceGroupName 'rg').Blocked | Should -Match 'only copy.*-DiscardLastCopy'
+    (Get-SsuxCleanupPlan -Role Database -Existing $script:existing -ResourceGroupName 'rg').Blocked | Should -Match 'Database'
+    (Get-SsuxCleanupPlan -Role Hub -Existing $script:existing -ResourceGroupName 'rg' -DiscardLastCopy).Blocked | Should -BeNullOrEmpty
+  }
 }
 
 Describe 'Get-SsuxRandomPassword and summary' {

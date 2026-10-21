@@ -424,6 +424,26 @@ Describe 'Get-LwCleanupPlan' {
   }
 }
 
+Describe 'Get-LwLastCopyCheck' {
+  BeforeAll {
+    $script:group = [pscustomobject]@{ Kind = 'ResourceGroup'; Name = 'rg-avdlz-dev-liquidware' }
+    $script:peering = [pscustomobject]@{ Kind = 'Peering'; Name = 'peer-avdlz-dev-to-liquidware' }
+  }
+  It 'refuses to remove the tier resource group without -DiscardLastCopy' {
+    $r = Get-LwLastCopyCheck -Steps @($script:peering, $script:group)
+    $r.Status | Should -Be 'FAIL'
+    $r.Detail | Should -Match 'only copy'
+    $r.Recommendation | Should -Match '-DiscardLastCopy'
+  }
+  It 'warns and goes ahead with -DiscardLastCopy' {
+    (Get-LwLastCopyCheck -Steps @($script:group) -DiscardLastCopy).Status | Should -Be 'WARN'
+  }
+  It 'says nothing when only peerings and links are left' {
+    Get-LwLastCopyCheck -Steps @($script:peering) | Should -BeNullOrEmpty
+    Get-LwLastCopyCheck | Should -BeNullOrEmpty
+  }
+}
+
 Describe 'Get-LwTeardownCheck' {
   BeforeAll { $script:n = Get-LwName -NamePrefix avdlz -Environment dev }
   It 'passes when the resource group, peering and links are gone' {
