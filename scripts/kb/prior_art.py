@@ -30,7 +30,7 @@ CODE_EXTENSIONS = ("py", "ts", "js")
 def search_kb(terms: list[str]) -> list[str]:
     hits = []
     for md in sorted(KB_DIR.rglob("*.md")):
-        for n, line in enumerate(md.read_text().splitlines(), 1):
+        for n, line in enumerate(md.read_text(encoding="utf-8").splitlines(), 1):
             if all(t.lower() in line.lower() for t in terms):
                 hits.append(f"- `{md.relative_to(ROOT)}:{n}` {line.strip()[:160]}")
     return hits
@@ -98,7 +98,7 @@ def main() -> int:
 
     sys.stdout.write(report)
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
-        with open(summary, "a") as fh:
+        with open(summary, "a", encoding="utf-8") as fh:
             fh.write(report)
     return 0
 

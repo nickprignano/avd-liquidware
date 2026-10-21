@@ -28,7 +28,7 @@ KB_DIR = ROOT / "docs" / "knowledge"
 def known_urls(kb_dir: Path) -> set[str]:
     urls = set()
     for md in kb_dir.rglob("*.md"):
-        urls.update(u.rstrip(").,") for u in re.findall(r"https?://[^\s)>\]]+", md.read_text()))
+        urls.update(u.rstrip(").,") for u in re.findall(r"https?://[^\s)>\]]+", md.read_text(encoding="utf-8")))
     return urls
 
 
@@ -87,18 +87,18 @@ def main() -> int:
     parser.add_argument("--output", type=Path, help="write the digest here (default: stdout)")
     args = parser.parse_args()
 
-    sources = tomllib.loads(args.sources.read_text())["source"]
+    sources = tomllib.loads(args.sources.read_text(encoding="utf-8"))["source"]
     since = datetime.now(timezone.utc) - timedelta(days=args.since_days)
     results, errors = collect(sources, since, known_urls(KB_DIR))
     digest = render(results, errors, since)
 
     if args.output:
-        args.output.write_text(digest)
+        args.output.write_text(digest, encoding="utf-8")
     else:
         sys.stdout.write(digest)
 
     if gh_out := os.environ.get("GITHUB_OUTPUT"):
-        with open(gh_out, "a") as fh:
+        with open(gh_out, "a", encoding="utf-8") as fh:
             fh.write(f"items={sum(len(i) for _, i in results)}\n")
             fh.write(f"failed={len(errors)}\n")
     return 0
