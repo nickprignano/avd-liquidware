@@ -406,7 +406,7 @@ foreach ($k in 'Location', 'Role', 'HubPlan', 'DatabasePlan', 'CollectorPlan', '
 }
 $tally = [ordered]@{}
 foreach ($st in 'FAIL', 'WARN', 'FIXED', 'PASS', 'INFO', 'SKIP') { $tally[$st] = @($results | Where-Object Status -eq $st).Count }
-[ordered]@{ tool = 'Test-StratusphereReadiness.ps1'; verdict = $verdict; counts = $tally; inputs = $inputs; files = @('report.md', 'results.csv', 'results.json', 'current-state.json') } |
+[ordered]@{ schemaVersion = 'stratusphere-instrument/v1'; reportKind = 'preflight-manifest'; tool = 'Test-StratusphereReadiness.ps1'; verdict = $verdict; counts = $tally; inputs = $inputs; files = @('report.md', 'results.csv', 'results.json', 'current-state.json') } |
   ConvertTo-Json -Depth 5 | Set-Content (Join-Path $dir 'manifest.json')
 
 $md = [System.Text.StringBuilder]::new()

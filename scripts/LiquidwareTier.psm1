@@ -7,7 +7,7 @@
 Import-Module (Join-Path $PSScriptRoot '../stratusphere/scripts/ops/StratusphereReadiness.psm1') -Force -Scope Local
 
 $script:Environments = @('dev', 'test', 'prod')
-$script:Components = @('ProfileUnity', 'FlexApp', 'Stratusphere')
+$script:Components = @('ProfileUnity', 'FlexApp', 'Stratusphere', 'CommandCTRL')
 
 function Get-LwCheckResult {
   # One check result, in the same shape as the Stratusphere scripts' results.
@@ -58,23 +58,24 @@ function Get-LwName {
   # Stratusphere's own prefix rule is 2-8 lowercase letters or digits; keep the environment's first letter.
   $ssux = "$($clean.Substring(0, [Math]::Min($clean.Length, 7)))$($Environment.Substring(0, 1))"
   [pscustomobject]@{
-    Clean          = $clean
-    Base           = $base
-    ResourceGroups = [ordered]@{
+    Clean                  = $clean
+    Base                   = $base
+    ResourceGroups         = [ordered]@{
       Network      = "rg-$base-network"
       Management   = "rg-$base-management"
       Storage      = "rg-$base-storage"
       ControlPlane = "rg-$base-avd"
       Hosts        = "rg-$base-hosts"
     }
-    Vnet           = "vnet-$base"
-    HostPool       = "vdpool-$base"
-    AppGroup       = "vdag-$base-desktop"
-    LogAnalytics   = "log-$base"
-    TierGroup      = "rg-$base-liquidware"
-    TierVnet       = "vnet-$base-liquidware"
-    PeeringToTier  = "peer-$base-to-liquidware"
-    ConsoleVm      = "vm-$($clean)lwcon"
+    Vnet                   = "vnet-$base"
+    HostPool               = "vdpool-$base"
+    AppGroup               = "vdag-$base-desktop"
+    LogAnalytics           = "log-$base"
+    TierGroup              = "rg-$base-liquidware"
+    TierVnet               = "vnet-$base-liquidware"
+    PeeringToTier          = "peer-$base-to-liquidware"
+    ConsoleVm              = "vm-$($clean)lwcon"
+    PackagingVm            = "vm-$($clean)lwpkg"
     StratusphereNamePrefix = $ssux
     StratusphereGroup      = "rg-$ssux-stratusphere"
   }
@@ -83,11 +84,6 @@ function Get-LwName {
 function Get-LwLandingZone {
   # Finds the landing zone in what Azure returned. Never throws for a missing piece: each one is
   # listed in Missing, and Get-LwLandingZoneCheck turns the list into FAIL lines.
-  #   ResourceGroup: names of the subscription's resource groups.
-  #   Resource:      objects with ResourceId, Name, ResourceType, ResourceGroupName, Location and,
-  #                  for storage accounts, Kind (Get-AzResource shape).
-  #   Vnet:          the spoke, or $null: AddressPrefixes, Subnets (Name, AddressPrefix),
-  #                  Peerings (Name, RemoteVnetId, RemoteAddressPrefixes).
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] [string] $NamePrefix,
@@ -135,22 +131,22 @@ function Get-LwLandingZone {
   # Standalone landing zones own their privatelink zones; HubPeered ones use the platform's (no local zones).
   $mode = $(if ($fileZone) { 'Standalone' } else { 'HubPeered' })
   [pscustomobject]@{
-    Names              = $n
-    ConnectivityMode   = $mode
-    Location           = $(if ($Vnet) { $Vnet.Location } elseif ($hostPool) { $hostPool.Location } else { $null })
-    VnetId             = $(if ($Vnet) { $Vnet.Id } else { $null })
-    VnetAddressPrefixes = @($(if ($Vnet) { $Vnet.AddressPrefixes } else { @() }))
-    SessionHostSubnetPrefix = $(if ($hostSubnet) { $hostSubnet.AddressPrefix } else { $null })
+    Names                       = $n
+    ConnectivityMode            = $mode
+    Location                    = $(if ($Vnet) { $Vnet.Location } elseif ($hostPool) { $hostPool.Location } else { $null })
+    VnetId                      = $(if ($Vnet) { $Vnet.Id } else { $null })
+    VnetAddressPrefixes         = @($(if ($Vnet) { $Vnet.AddressPrefixes } else { @() }))
+    SessionHostSubnetPrefix     = $(if ($hostSubnet) { $hostSubnet.AddressPrefix } else { $null })
     PrivateEndpointSubnetPrefix = $(if ($endpointSubnet) { $endpointSubnet.AddressPrefix } else { $null })
-    Peerings           = @($(if ($Vnet) { @($Vnet.Peerings | Where-Object { $_ }) } else { @() }))
-    ProfilesAccountId  = $(if ($profiles) { $profiles.ResourceId } else { $null })
-    KeyVaultId         = $(if ($keyVault) { $keyVault.ResourceId } else { $null })
-    LogAnalyticsId     = $(if ($law) { $law.ResourceId } else { $null })
-    HostPoolId         = $(if ($hostPool) { $hostPool.ResourceId } else { $null })
-    AppGroupId         = $(if ($appGroup) { $appGroup.ResourceId } else { $null })
-    FileDnsZoneId      = $(if ($fileZone) { $fileZone.ResourceId } else { $null })
-    VaultDnsZoneId     = $(if ($vaultZone) { $vaultZone.ResourceId } else { $null })
-    Missing            = $missing.ToArray()
+    Peerings                    = @($(if ($Vnet) { @($Vnet.Peerings | Where-Object { $_ }) } else { @() }))
+    ProfilesAccountId           = $(if ($profiles) { $profiles.ResourceId } else { $null })
+    KeyVaultId                  = $(if ($keyVault) { $keyVault.ResourceId } else { $null })
+    LogAnalyticsId              = $(if ($law) { $law.ResourceId } else { $null })
+    HostPoolId                  = $(if ($hostPool) { $hostPool.ResourceId } else { $null })
+    AppGroupId                  = $(if ($appGroup) { $appGroup.ResourceId } else { $null })
+    FileDnsZoneId               = $(if ($fileZone) { $fileZone.ResourceId } else { $null })
+    VaultDnsZoneId              = $(if ($vaultZone) { $vaultZone.ResourceId } else { $null })
+    Missing                     = $missing.ToArray()
   }
 }
 
@@ -183,7 +179,6 @@ function Get-LwAddressCheck {
   $other = @()
   foreach ($p in @($LandingZone.VnetAddressPrefixes)) { if ($p) { $other += [pscustomobject]@{ Source = 'the spoke'; Prefix = $p; Blocking = $true } } }
   foreach ($peer in @($LandingZone.Peerings)) {
-    # Our own peering to the tier VNet is expected: skip it.
     if (-not $peer -or $peer.Name -eq $LandingZone.Names.PeeringToTier) { continue }
     foreach ($p in @($peer.RemoteAddressPrefixes)) { if ($p) { $other += [pscustomobject]@{ Source = "peered: $($peer.Name)"; Prefix = $p; Blocking = $true } } }
   }
@@ -214,8 +209,7 @@ function Get-LwStratusphereArgument {
 
 function Get-LwUsersGroup {
   # The landing zone's users group: the one group holding SMB Share Contributor on the profiles
-  # account (decision 0005 in avd-landing-zone). RoleAssignment: Get-AzRoleAssignment shape
-  # (ObjectId, ObjectType, RoleDefinitionName, Scope) for the profiles account's scope.
+  # account (decision 0005 in avd-landing-zone).
   [CmdletBinding()]
   param(
     [AllowEmptyCollection()] [object[]] $RoleAssignment = @(),
@@ -236,8 +230,7 @@ function Get-LwUsersGroup {
 
 function Get-LwGeneratedPassword {
   # A local admin password for a new VM, built in memory and only ever handed to the template
-  # (which writes it to the tier Key Vault). 24 characters with all four character classes,
-  # well inside Azure's Windows rules (12 to 123 characters, three of four classes).
+  # (which writes it to the tier Key Vault).
   [CmdletBinding()]
   [OutputType([securestring])]
   param([ValidateRange(16, 123)] [int] $Length = 24)
@@ -247,7 +240,6 @@ function Get-LwGeneratedPassword {
   $chars = [System.Collections.Generic.List[char]]::new()
   foreach ($c in $classes) { $chars.Add($c[$rng::GetInt32($c.Length)]) }
   while ($chars.Count -lt $Length) { $chars.Add($all[$rng::GetInt32($all.Length)]) }
-  # Fisher-Yates, so the guaranteed classes aren't always the first four characters.
   for ($i = $chars.Count - 1; $i -gt 0; $i--) {
     $j = $rng::GetInt32($i + 1)
     $t = $chars[$i]; $chars[$i] = $chars[$j]; $chars[$j] = $t
@@ -260,12 +252,7 @@ function Get-LwGeneratedPassword {
 }
 
 function Get-LwTierState {
-  # What the tier already has that the template must not redo: the console VM (an existing one
-  # keeps the password it was created with, lesson 0002) and the lw-licstr secret (a role can
-  # only be scoped to a secret that exists).
-  #   Console:       $null, or the VM: Name and PrincipalId (its system-assigned identity).
-  #   LicenseSecret: $null, or the ARM resource Microsoft.KeyVault/vaults/secrets/lw-licstr
-  #                  (management plane: it exists, its value is never read).
+  # What the tier already has that the template must not redo: the console VM and the lw-licstr secret.
   [CmdletBinding()]
   param(
     $Console = $null,
@@ -309,13 +296,22 @@ function Get-LwTemplateParameter {
     [Parameter(Mandatory)] $TierState,
     [securestring] $ConsoleAdminPassword = $null,
     [string] $AutoShutdownTime = '1900',
-    [switch] $Bastion
+    [switch] $Bastion,
+    [switch] $Portability,
+    [switch] $ApplicationRestrictions,
+    [switch] $Packaging,
+    [securestring] $PackagingAdminPassword = $null,
+    [switch] $Backup
   )
   $lz = $LandingZone
   if (-not $TierState.ConsoleExists -and -not $ConsoleAdminPassword) {
     throw 'A new console needs -ConsoleAdminPassword (Get-LwGeneratedPassword).'
   }
+  if ($Packaging -and -not $PackagingAdminPassword) {
+    throw 'A packaging VM needs -PackagingAdminPassword (Get-LwGeneratedPassword).'
+  }
   if ($AutoShutdownTime -notmatch '^([01]\d|2[0-3])[0-5]\d$') { throw "AutoShutdownTime '$AutoShutdownTime' must be HHmm." }
+  $profilesName = $(if ($lz.ProfilesAccountId) { ($lz.ProfilesAccountId -split '/')[-1] } else { '' })
   [ordered]@{
     location                         = $lz.Location
     namePrefix                       = $lz.Names.Clean
@@ -337,13 +333,20 @@ function Get-LwTemplateParameter {
     consoleAdminPassword             = $(if ($TierState.ConsoleExists) { $null } else { $ConsoleAdminPassword })
     licenseStored                    = [bool] $TierState.LicenseStored
     autoShutdownTime                 = $AutoShutdownTime
+    enablePortability                = [bool] $Portability
+    profilesStorageAccountName       = $profilesName
+    profilesResourceGroupName        = "$($lz.Names.ResourceGroups.Storage)"
+    enableApplicationRestrictions    = [bool] $ApplicationRestrictions
+    logAnalyticsWorkspaceId          = "$($lz.LogAnalyticsId)"
+    deployPackagingVm                = [bool] $Packaging
+    packagingAdminPassword           = $(if ($Packaging) { $PackagingAdminPassword } else { $null })
+    enableBackup                     = [bool] $Backup
   }
 }
 
 function Get-LwWhatIfSummary {
-  # One line per change what-if reports (Get-AzSubscriptionDeploymentWhatIfResult's Changes:
-  # ChangeType, ResourceId), and a FAIL for anything it would delete or for a landing zone
-  # resource it would change other than the writes deploy-spec section 4 lists.
+  # One line per change what-if reports, and a FAIL for anything it would delete or for a landing
+  # zone resource it would change other than the writes deploy-spec section 4 lists.
   [CmdletBinding()]
   param(
     [AllowEmptyCollection()] [object[]] $Change = @(),
@@ -351,9 +354,11 @@ function Get-LwWhatIfSummary {
   )
   $n = $LandingZone.Names
   $net = "/resourceGroups/$([regex]::Escape($n.ResourceGroups.Network))/providers/Microsoft\.Network"
+  $stg = "/resourceGroups/$([regex]::Escape($n.ResourceGroups.Storage))/providers/Microsoft\.Storage"
   $allowed = @(
     "$net/virtualNetworks/$([regex]::Escape($n.Vnet))/virtualNetworkPeerings/$([regex]::Escape($n.PeeringToTier))$"
     "$net/privateDnsZones/[^/]+/virtualNetworkLinks/link-$([regex]::Escape($n.Base))-liquidware$"
+    "$stg/storageAccounts/[^/]+/fileServices/default/shares/portability$"
   )
   foreach ($c in @($Change | Where-Object { $_ })) {
     $type = "$($c.ChangeType)"
@@ -374,12 +379,11 @@ function Get-LwWhatIfSummary {
   }
 }
 
-$script:MediaComponents = @('ProfileUnityConsole', 'ProfileUnityClient', 'FlexAppPackagingConsole')
+$script:MediaComponents = @('ProfileUnityConsole', 'ProfileUnityClient', 'FlexAppPackagingConsole', 'CommandCtrlAgent')
 $script:LockFormat = 'avd-liquidware-media-lock/v1'
 
 function Get-LwMediaBlobName {
-  # Where an installer lives in the media container: <component>/<version>/<file> (deploy-spec
-  # section 6.4). Strict, because the name ends up in a URL a host script builds.
+  # Where an installer lives in the media container: <component>/<version>/<file> (deploy-spec section 6.4).
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] [string] $Component,
@@ -393,9 +397,7 @@ function Get-LwMediaBlobName {
 }
 
 function Get-LwMediaLock {
-  # The lock file (media.lock.json) with one entry added or replaced: component, version, file,
-  # SHA-256 and size. No URLs, no secrets. The lock belongs in the customer's private repo.
-  #   Lock: the parsed existing lock, or $null for the first upload.
+  # The lock file (media.lock.json) with one entry added or replaced.
   [CmdletBinding()]
   param(
     $Lock = $null,
@@ -422,8 +424,7 @@ function Get-LwMediaLock {
 }
 
 function Get-LwSecretPath {
-  # The ARM path that writes a tier Key Vault secret through the management plane, which works on
-  # a private vault from Cloud Shell (DN-C1). Only the secrets the operator sets are allowed.
+  # The ARM path that writes a tier Key Vault secret through the management plane (DN-C1).
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] [string] $KeyVaultId,
@@ -436,7 +437,7 @@ function Get-LwSecretPath {
 }
 
 function Get-LwMediaLockEntry {
-  # The newest lock entry for one component, or $null. Lock: the parsed media.lock.json, or $null.
+  # The newest lock entry for one component, or $null.
   [CmdletBinding()]
   param(
     $Lock = $null,
@@ -447,10 +448,7 @@ function Get-LwMediaLockEntry {
 }
 
 function Get-LwDeletedVault {
-  # The tier's Key Vault, soft-deleted by an earlier Cleanup. Purge protection keeps it for its
-  # retention (7 days), and the template reuses the same name, so Deploy recovers it rather than
-  # failing on the name (lesson 0022, DN-M3).
-  #   Removed: Get-AzKeyVault -InRemovedState shape (VaultName, Location, ScheduledPurgeDate).
+  # The tier's Key Vault, soft-deleted by an earlier Cleanup (lesson 0022, DN-M3).
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] $Names,
@@ -472,11 +470,7 @@ function Get-LwDeletedVault {
 }
 
 function Get-LwCleanupPlan {
-  # What Cleanup removes, in order (deploy-spec section 11): the landing zone's child resources
-  # the tier added, then the tier resource group. Nothing else, and nothing by a looser match
-  # than the tier's own names.
-  #   Peering: the spoke's peerings (Name, RemoteVnetId).
-  #   DnsLink: links in the landing zone's privatelink zones (Name, ZoneName, VirtualNetworkId, ResourceId).
+  # What Cleanup removes, in order (deploy-spec section 11).
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] $Names,
@@ -499,10 +493,7 @@ function Get-LwCleanupPlan {
 }
 
 function Get-LwLastCopyCheck {
-  # Never delete the last copy (avd-second-brain decision 0016). The tier resource group holds the
-  # live ProfileUnity configuration, the FlexApp packages, the console and, outside dev, its backup:
-  # nothing else holds a copy, so removing it needs -DiscardLastCopy. -Force only skips the question.
-  #   Steps: Get-LwCleanupPlan's output.
+  # Never delete the last copy (avd-second-brain decision 0016).
   [CmdletBinding()]
   param(
     [AllowEmptyCollection()] [object[]] $Steps = @(),
@@ -535,12 +526,11 @@ function Get-LwTeardownCheck {
 
 function Get-LwRunCommandResult {
   # The one result line a host script prints (LW-RESULT status=... path=... detail=...), as a check.
-  # Output: the Run Command's instance view output, all of it (lesson 0012).
   [CmdletBinding()]
   param(
     [AllowEmptyString()] [string] $Output = '',
     [Parameter(Mandatory)] [string] $Check,
-    [string[]] $Pass = @('verified')
+    [string[]] $Pass = @('verified', 'installed', 'uninstalled', 'staged')
   )
   $line = @(($Output -split "`r?`n") | Where-Object { $_ -match '^LW-RESULT ' }) | Select-Object -Last 1
   if (-not $line) {
@@ -552,26 +542,301 @@ function Get-LwRunCommandResult {
   Get-LwCheckResult FAIL $Check "$status. $detail" -Recommendation 'Fix what the detail names, then Deploy again.' -Category ProfileUnity
 }
 
+function Get-LwHostPlan {
+  # Per-host execution plan for Sync-LiquidwareHosts.ps1 (deploy-spec sections 6.2 and 6.3,
+  # lesson 0026, DN-H1, DN-H2, D-H5).
+  #   SessionHost: Name, AllowNewSession (bool), Sessions (int), ConfiguredVersion (string)
+  #   Vm:          Name, PowerState ('VM running', 'VM deallocated', etc.), Tags (hashtable/psobject)
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] [AllowEmptyCollection()] [object[]] $SessionHost,
+    [AllowEmptyCollection()] [object[]] $Vm = @(),
+    [ValidateSet('ProfileUnity', 'Stratusphere', 'CommandCTRL')] [string] $Component = 'ProfileUnity',
+    [ValidateSet('Configure', 'Check', 'Cleanup')] [string] $Action = 'Configure',
+    [bool] $BudgetLockActive = $false,
+    [switch] $HoldUnconfigured
+  )
+  foreach ($h in @($SessionHost | Where-Object { $_ })) {
+    $rawName = "$($h.Name)"
+    $vmShort = (($rawName -split '/')[-1] -split '\.')[0]
+    $vmObj = @($Vm | Where-Object { $_ -and (($_.Name -split '\.')[0] -eq $vmShort -or $_.Name -eq $rawName) }) | Select-Object -First 1
+    $power = $(if ($vmObj -and $vmObj.PSObject.Properties['PowerState'] -and $vmObj.PowerState) { "$($vmObj.PowerState)" } else { 'VM deallocated' })
+    $tags = @{}
+    if ($vmObj -and $vmObj.PSObject.Properties['Tags'] -and $vmObj.Tags) {
+      if ($vmObj.Tags -is [System.Collections.IDictionary]) {
+        foreach ($k in $vmObj.Tags.Keys) { $tags["$k"] = "$($vmObj.Tags[$k])" }
+      }
+      else {
+        foreach ($p in $vmObj.Tags.PSObject.Properties) { $tags[$p.Name] = "$($p.Value)" }
+      }
+    }
+    $tierDrained = $tags.ContainsKey('liquidware-drained')
+    $allowNew = $(if ($h.PSObject.Properties['AllowNewSession']) { [bool]$h.AllowNewSession } else { $true })
+    $sessions = $(if ($h.PSObject.Properties['Sessions']) { [int]$h.Sessions } else { 0 })
+    $version = $(if ($h.PSObject.Properties['ConfiguredVersion']) { "$($h.ConfiguredVersion)" } else { '' })
+    $isConfigured = [bool]$version
+
+    if ($BudgetLockActive) {
+      [pscustomobject]@{
+        HostName           = $rawName
+        VmName             = $vmShort
+        Component          = $Component
+        Action             = 'SkipBudgetLock'
+        OriginalPowerState = $power
+        NeedsStart         = $false
+        DrainAction        = 'Preserve'
+        UndrainAfter       = $false
+        RestoreStopAfter   = $false
+        HoldTag            = ''
+        Sessions           = $sessions
+        ConfiguredVersion  = $version
+      }
+      continue
+    }
+
+    $needsStart = ($power -ne 'VM running')
+    $drainAction = 'None'
+    $undrainAfter = $false
+    if ($Action -in 'Configure', 'Cleanup') {
+      if ($allowNew) {
+        $drainAction = 'DrainAndTag'
+        $undrainAfter = $true
+      }
+      elseif ($tierDrained) {
+        $drainAction = 'KeepTierDrain'
+        $undrainAfter = $true
+      }
+      else {
+        # Someone else (rotation, admin or scaling) drained this host; preserve their drain (DN-H1).
+        $drainAction = 'Preserve'
+        $undrainAfter = $false
+      }
+    }
+    $holdTag = $(if ($HoldUnconfigured -and -not $isConfigured -and $Action -ne 'Cleanup') { 'liquidware-hold' } else { '' })
+    $planAction = switch ($Action) {
+      'Check' { if ($isConfigured) { 'Healthy' } else { 'Unconfigured' } }
+      'Cleanup' { 'Uninstall' }
+      'Configure' { if ($isConfigured) { 'NoOp' } else { 'Install' } }
+    }
+    [pscustomobject]@{
+      HostName           = $rawName
+      VmName             = $vmShort
+      Component          = $Component
+      Action             = $planAction
+      OriginalPowerState = $power
+      NeedsStart         = $needsStart
+      DrainAction        = $drainAction
+      UndrainAfter       = $undrainAfter
+      RestoreStopAfter   = $needsStart
+      HoldTag            = $holdTag
+      Sessions           = $sessions
+      ConfiguredVersion  = $version
+    }
+  }
+}
+
+function Get-LwConfigPromotePlan {
+  # Validates a staged configuration export before promoting it to lwconfig (deploy-spec section 7,
+  # D-C3, DN-C4, DN-M6, tier H1).
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] [string] $ConfigName,
+    [Parameter(Mandatory)] [string] $Timestamp,
+    [Parameter(Mandatory)] [string] $StagedIniSha256,
+    $PlainTextExport = $null,
+    [ValidateSet('QA', 'All')] [string] $Ring = 'QA',
+    [string] $LiveIniSha256 = '',
+    [switch] $Force
+  )
+  $results = [System.Collections.Generic.List[object]]::new()
+  $targetFolder = $(if ($Ring -eq 'QA') { "$ConfigName-qa" } else { $ConfigName })
+  if ($StagedIniSha256 -notmatch '^[0-9a-fA-F]{64}$') {
+    $results.Add((Get-LwCheckResult FAIL 'promote-hash' "StagedIniSha256 '$StagedIniSha256' is not 64 hex characters." -Recommendation 'Re-stage from the console.' -Category Promote))
+  }
+  if (-not $PlainTextExport) {
+    $results.Add((Get-LwCheckResult FAIL 'promote-export' 'No plain-text export (.json) accompanies the staged INI (DN-C4).' -Recommendation 'Export the configuration in plain text on the console and stage again.' -Category Promote))
+  }
+  else {
+    $expTs = $(if ($PlainTextExport.PSObject.Properties['timestamp']) { "$($PlainTextExport.timestamp)" } else { '' })
+    $expSha = $(if ($PlainTextExport.PSObject.Properties['iniSha256']) { "$($PlainTextExport.iniSha256)" } else { '' })
+    if ($expTs -ne $Timestamp -or $expSha.ToLowerInvariant() -ne $StagedIniSha256.ToLowerInvariant()) {
+      $results.Add((Get-LwCheckResult FAIL 'promote-export' "Plain-text export ($expTs / $expSha) does not match the staged INI ($Timestamp / $StagedIniSha256)." -Recommendation 'Re-stage both from the same console deploy.' -Category Promote))
+    }
+    $rules = @($(if ($PlainTextExport.PSObject.Properties['rules']) { $PlainTextExport.rules } else { @() }))
+    $paths = @($(if ($PlainTextExport.PSObject.Properties['portabilityPaths']) { $PlainTextExport.portabilityPaths } else { @() }))
+    if ($rules.Count -eq 0 -and $paths.Count -eq 0) {
+      $results.Add((Get-LwCheckResult FAIL 'promote-empty' 'The staged configuration has no rules or portability paths.' -Recommendation 'Check the configuration in the console before promoting.' -Category Promote))
+    }
+    $forbidden = @('OneDrive', 'Teams', 'Outlook', 'Packages', 'OST', 'ODFC')
+    foreach ($p in $paths) {
+      $hit = @($forbidden | Where-Object { "$p" -match "(?i)(^|[\\/])$([regex]::Escape($_))([\\/]|$)" })
+      if ($hit.Count -gt 0) {
+        $results.Add((Get-LwCheckResult FAIL 'promote-fslogix-overlap' "Portability path '$p' overlaps FSLogix container path ($($hit -join ', ')) (tier H1)." -Recommendation 'Exclude OneDrive, Teams, Outlook and MSIX Packages from Portability; FSLogix owns them.' -Category Promote))
+      }
+    }
+  }
+  if ($LiveIniSha256 -and $LiveIniSha256.ToLowerInvariant() -eq $StagedIniSha256.ToLowerInvariant() -and -not $Force) {
+    $results.Add((Get-LwCheckResult FAIL 'promote-unchanged' "lwconfig/$targetFolder already runs INI SHA-256 $StagedIniSha256." -Recommendation 'Pass -Force to re-promote the same hash.' -Category Promote))
+  }
+  if (@($results | Where-Object Status -eq 'FAIL').Count -eq 0) {
+    $results.Add((Get-LwCheckResult PASS 'promote-plan' "Ready to promote $ConfigName ($Timestamp) to lwconfig/$targetFolder (client.net.xml renamed before $ConfigName.ini)." -Category Promote))
+  }
+  [pscustomobject]@{
+    TargetFolder = $targetFolder
+    RenameOrder  = @('client.net.xml', "$ConfigName.ini")
+    Ready        = (@($results | Where-Object Status -eq 'FAIL').Count -eq 0)
+    Result       = $results.ToArray()
+  }
+}
+
+function Get-LwAssignmentConflict {
+  # Double-assignment check (deploy-spec section 8.3, tier H5): an application assigned in more
+  # than one of AVD app attach, ProfileUnity FlexApp rules, or native MSIX is a FAIL.
+  [CmdletBinding()]
+  param(
+    [AllowEmptyCollection()] [string[]] $AvdAppAttach = @(),
+    [AllowEmptyCollection()] [string[]] $ProfileUnityFlexApp = @(),
+    [AllowEmptyCollection()] [string[]] $NativeMsix = @()
+  )
+  $map = @{}
+  foreach ($source in @(
+      @{ Name = 'AvdAppAttach'; Items = $AvdAppAttach }
+      @{ Name = 'ProfileUnityFlexApp'; Items = $ProfileUnityFlexApp }
+      @{ Name = 'NativeMsix'; Items = $NativeMsix }
+    )) {
+    foreach ($app in @($source.Items | Where-Object { $_ })) {
+      $key = $app.Trim().ToLowerInvariant()
+      if (-not $map.ContainsKey($key)) { $map[$key] = [System.Collections.Generic.List[string]]::new() }
+      if (-not $map[$key].Contains($source.Name)) { $map[$key].Add($source.Name) }
+    }
+  }
+  $conflicts = @()
+  foreach ($k in ($map.Keys | Sort-Object)) {
+    if ($map[$k].Count -gt 1) {
+      $conflicts += Get-LwCheckResult FAIL 'assignment-conflict' "Application '$k' is assigned in multiple systems: $($map[$k] -join ', ') (tier H5)." -Recommendation 'Keep each application in exactly one assignment system (Set-FlexAppAssignment.ps1).' -Category FlexApp
+    }
+  }
+  if ($conflicts.Count -eq 0) {
+    return @(Get-LwCheckResult PASS 'assignment-conflict' "No duplicate application assignments across AvdAppAttach, ProfileUnityFlexApp and NativeMsix." -Category FlexApp)
+  }
+  $conflicts
+}
+
+function Get-LwCostEstimate {
+  # Cost estimate lines from retail meter records (deploy-spec section 13, decision 0010) plus the
+  # mandatory warning that the landing zone budget lock does not cover this tier.
+  [CmdletBinding()]
+  param(
+    [AllowEmptyCollection()] [object[]] $Meter = @(),
+    [string[]] $Component = @('ProfileUnity'),
+    [switch] $Portability,
+    [switch] $Packaging,
+    [switch] $Backup
+  )
+  $items = [System.Collections.Generic.List[object]]::new()
+  if (@($Component | Where-Object { $_ -in 'ProfileUnity', 'FlexApp' }).Count -gt 0) {
+    $items.Add(@{ Name = 'Console VM (Standard_D2as_v5)'; Sku = 'Standard_D2as_v5' })
+    $items.Add(@{ Name = 'NAT Gateway'; Sku = 'Standard NAT Gateway' })
+    $items.Add(@{ Name = 'Private endpoints (3x)'; Sku = 'Private Endpoint' })
+    $items.Add(@{ Name = 'Tier storage (config, packages, media)'; Sku = 'Standard_LRS' })
+  }
+  if ($Portability) { $items.Add(@{ Name = 'Portability share (100 GiB Premium Files)'; Sku = 'Premium_LRS' }) }
+  if ($Packaging) { $items.Add(@{ Name = 'Packaging VM (Standard_D2as_v5)'; Sku = 'Standard_D2as_v5' }) }
+  if ($Backup) { $items.Add(@{ Name = 'Recovery Services backup vault'; Sku = 'Azure Backup' }) }
+  if ($Component -contains 'Stratusphere') { $items.Add(@{ Name = 'Stratusphere Hub (Standard_D4s_v5 + Marketplace plan)'; Sku = 'Standard_D4s_v5' }) }
+
+  $lines = foreach ($item in $items) {
+    $hit = @($Meter | Where-Object { $_ -and $_.Sku -eq $item.Sku })
+    $priceText = $(if ($hit.Count -eq 1) { "$($hit[0].UnitPrice) $($hit[0].CurrencyCode) per $($hit[0].UnitOfMeasure)" } elseif ($hit.Count -gt 1) { "multiple meters ($($hit.Count)) matched $($item.Sku)" } else { 'unpriced (offline; query prices.azure.com before a live run)' })
+    [pscustomobject]@{
+      Line   = $item.Name
+      Sku    = $item.Sku
+      Priced = ($hit.Count -eq 1)
+      Detail = "$($item.Name): $priceText"
+    }
+  }
+  $warning = Get-LwCheckResult WARN 'budget' "The landing zone's budget Lock doesn't stop this tier: the console, NAT Gateway, private endpoints and storage keep billing." -Recommendation 'In dev, run Cleanup the same day (D-H6).' -Category Cost
+  [pscustomobject]@{
+    Lines   = @($lines)
+    Warning = $warning
+  }
+}
+
+function Get-LwStratusphereWindowCheck {
+  # Checks the stratusphere-window-end tag on the Stratusphere resource group (deploy-spec section 9).
+  [CmdletBinding()]
+  param(
+    [string] $WindowEnd = '',
+    [datetime] $Now = [datetime]::UtcNow,
+    [int] $DefaultDays = 28
+  )
+  if (-not $WindowEnd) {
+    $proposed = $Now.ToUniversalTime().AddDays($DefaultDays).ToString('yyyy-MM-dd')
+    return Get-LwCheckResult INFO 'stratusphere-window' "No stratusphere-window-end tag yet; Deploy sets it to $proposed ($DefaultDays days)." -Category Stratusphere
+  }
+  $parsed = [datetime]::MinValue
+  if (-not [datetime]::TryParse($WindowEnd, [ref]$parsed)) {
+    return Get-LwCheckResult FAIL 'stratusphere-window' "Tag stratusphere-window-end '$WindowEnd' is not a valid ISO date." -Recommendation 'Set stratusphere-window-end to yyyy-MM-dd.' -Category Stratusphere
+  }
+  $daysLeft = [math]::Ceiling(($parsed.ToUniversalTime() - $Now.ToUniversalTime()).TotalDays)
+  if ($daysLeft -lt 0) {
+    return Get-LwCheckResult FAIL 'stratusphere-window' "Stratusphere assessment window ended on $WindowEnd ($([math]::Abs($daysLeft)) day(s) ago)." -Recommendation 'Export assessment data and run Deploy-LiquidwareTier.ps1 -Component Stratusphere -Action Cleanup -DiscardLastCopy.' -Category Stratusphere
+  }
+  if ($daysLeft -le 7) {
+    return Get-LwCheckResult WARN 'stratusphere-window' "Stratusphere assessment window ends on $WindowEnd ($daysLeft day(s) left)." -Recommendation 'Export assessment data before the window ends, then run Cleanup.' -Category Stratusphere
+  }
+  Get-LwCheckResult PASS 'stratusphere-window' "Stratusphere assessment window active until $WindowEnd ($daysLeft day(s) left)." -Category Stratusphere
+}
+
+function Test-LwInstrumentReport {
+  # Validates a Stratusphere report object against contracts/schemas/stratusphere-instrument.schema.json (C16).
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory)] $Report,
+    [string] $SchemaPath = ''
+  )
+  if (-not $SchemaPath) { $SchemaPath = Join-Path $PSScriptRoot '../contracts/schemas/stratusphere-instrument.schema.json' }
+  $schema = Get-Content -LiteralPath $SchemaPath -Raw | ConvertFrom-Json
+  $errors = [System.Collections.Generic.List[string]]::new()
+  foreach ($req in @($schema.required)) {
+    if (-not $Report.PSObject.Properties[$req] -or -not $Report.$req) {
+      $errors.Add("Missing required property '$req'.")
+    }
+  }
+  if ($Report.PSObject.Properties['schemaVersion'] -and $Report.schemaVersion -ne $schema.properties.schemaVersion.const) {
+    $errors.Add("schemaVersion '$($Report.schemaVersion)' must be '$($schema.properties.schemaVersion.const)'.")
+  }
+  $allowedKinds = @($schema.properties.reportKind.enum)
+  if ($Report.PSObject.Properties['reportKind'] -and $allowedKinds -notcontains "$($Report.reportKind)") {
+    $errors.Add("reportKind '$($Report.reportKind)' must be one of: $($allowedKinds -join ', ').")
+  }
+  [pscustomobject]@{
+    IsValid = ($errors.Count -eq 0)
+    Errors  = $errors.ToArray()
+  }
+}
+
 function Get-LwPlanSummary {
-  # Whether each component's action is built yet (deploy-spec section 15), and what Plan and Deploy
-  # must say about cost. Unbuilt steps fail before anything changes.
+  # Whether each component's action is applicable (deploy-spec section 11), and what Plan and Deploy
+  # must say about cost.
   [CmdletBinding()]
   param(
     [Parameter(Mandatory)] [string[]] $Component,
     [Parameter(Mandatory)] [string] $Action
   )
   $built = @{
-    ProfileUnity = @('Plan', 'Check', 'Deploy', 'Cleanup')
-    FlexApp      = @('Plan', 'Check', 'Deploy', 'Cleanup')
-    Stratusphere = @('Plan', 'Check')
+    ProfileUnity = @('Plan', 'Check', 'Deploy', 'Configure', 'Promote', 'Fix', 'Cleanup')
+    FlexApp      = @('Plan', 'Check', 'Deploy', 'Promote', 'Fix', 'Cleanup')
+    Stratusphere = @('Plan', 'Check', 'Deploy', 'Configure', 'Fix', 'Cleanup')
+    CommandCTRL  = @('Plan', 'Check', 'Configure', 'Cleanup')
   }
   foreach ($c in $Component) {
     if (@($built[$c]) -contains $Action) { continue }
-    Get-LwCheckResult FAIL "$($c.ToLower())-$($Action.ToLower())" "$Action for $c is not built yet (deploy-spec section 15)." -Category $c
+    Get-LwCheckResult FAIL "$($c.ToLower())-$($Action.ToLower())" "$Action for $c is not applicable or not built (deploy-spec section 11)." -Category $c
   }
   if ($Action -in 'Plan', 'Deploy' -and @($Component | Where-Object { $_ -in 'ProfileUnity', 'FlexApp' }).Count -gt 0) {
     Get-LwCheckResult WARN 'budget' "The landing zone's budget Lock doesn't stop this tier: the console, NAT Gateway, private endpoints and storage keep billing." -Recommendation 'In dev, run Cleanup the same day (D-H6).' -Category Cost
   }
 }
 
-Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwMediaLockEntry, Get-LwDeletedVault, Get-LwCleanupPlan, Get-LwLastCopyCheck, Get-LwTeardownCheck, Get-LwRunCommandResult, Get-LwPlanSummary
+Export-ModuleMember -Function Get-LwCheckResult, Get-LwArgumentError, Get-LwName, Get-LwLandingZone, Get-LwLandingZoneCheck, Get-LwAddressCheck, Get-LwStratusphereArgument, Get-LwUsersGroup, Get-LwGeneratedPassword, Get-LwTierState, Get-LwTemplateParameter, Get-LwWhatIfSummary, Get-LwMediaBlobName, Get-LwMediaLock, Get-LwSecretPath, Get-LwMediaLockEntry, Get-LwDeletedVault, Get-LwCleanupPlan, Get-LwLastCopyCheck, Get-LwTeardownCheck, Get-LwRunCommandResult, Get-LwHostPlan, Get-LwConfigPromotePlan, Get-LwAssignmentConflict, Get-LwCostEstimate, Get-LwStratusphereWindowCheck, Test-LwInstrumentReport, Get-LwPlanSummary

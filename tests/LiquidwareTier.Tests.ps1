@@ -15,8 +15,8 @@ BeforeAll {
 }
 
 Describe 'Get-LwArgumentError' {
-  It 'accepts the dev landing zone' {
-    @(Get-LwArgumentError -NamePrefix avdlz -Environment dev -Component ProfileUnity -TierAddressPrefix 10.61.0.0/24).Count | Should -Be 0
+  It 'accepts the dev landing zone and all four components' {
+    @(Get-LwArgumentError -NamePrefix avdlz -Environment dev -Component ProfileUnity, FlexApp, Stratusphere, CommandCTRL -TierAddressPrefix 10.61.0.0/24).Count | Should -Be 0
   }
   It 'rejects an unknown environment, component and prefix' {
     $e = @(Get-LwArgumentError -NamePrefix 'AVD_LZ' -Environment staging -Component Nerdio)
@@ -39,6 +39,7 @@ Describe 'Get-LwName' {
     $n.ResourceGroups.Storage | Should -Be 'rg-avdlz-dev-storage'
     $n.HostPool | Should -Be 'vdpool-avdlz-dev'
     $n.TierGroup | Should -Be 'rg-avdlz-dev-liquidware'
+    $n.PackagingVm | Should -Be 'vm-avdlzlwpkg'
   }
   It 'gives Stratusphere a prefix its own 2-8 character rule accepts' {
     (Get-LwName -NamePrefix avdlz -Environment prod).StratusphereNamePrefix | Should -Be 'avdlzp'
@@ -240,6 +241,10 @@ Describe 'Get-LwTemplateParameter' {
     $p.deployBastion | Should -BeFalse
     $p.operatorObjectId | Should -Be 'operator-1'
     $p.autoShutdownTime | Should -Be '1900'
+    $p.enablePortability | Should -BeFalse
+    $p.enableApplicationRestrictions | Should -BeFalse
+    $p.deployPackagingVm | Should -BeFalse
+    $p.enableBackup | Should -BeFalse
   }
   It 'passes a password, as a SecureString, only for a new console' {
     $new = Get-Param
@@ -271,9 +276,10 @@ Describe 'Get-LwWhatIfSummary' {
         New-Change 'Create' '/resourceGroups/rg-avdlz-dev-liquidware/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev-liquidware'
         New-Change 'Create' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev/virtualNetworkPeerings/peer-avdlz-dev-to-liquidware'
         New-Change 'Create' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/privateDnsZones/privatelink.file.core.windows.net/virtualNetworkLinks/link-avdlz-dev-liquidware'
+        New-Change 'Create' '/resourceGroups/rg-avdlz-dev-storage/providers/Microsoft.Storage/storageAccounts/stavdlzdevabc123/fileServices/default/shares/portability'
         New-Change 'NoChange' '/resourceGroups/rg-avdlz-dev-network/providers/Microsoft.Network/virtualNetworks/vnet-avdlz-dev'
       ))
-    $r.Count | Should -Be 4
+    $r.Count | Should -Be 5
     @($r | Where-Object Status -ne 'INFO').Count | Should -Be 0
   }
   It 'fails a change to any other landing zone resource' {
@@ -349,16 +355,17 @@ Describe 'Get-LwPlanSummary' {
   It 'says nothing but the budget warning for the actions built for ProfileUnity and FlexApp' {
     @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Check).Count | Should -Be 0
     @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Cleanup).Count | Should -Be 0
+    @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Promote).Count | Should -Be 0
     $d = @(Get-LwPlanSummary -Component ProfileUnity -Action Deploy)
     $d.Count | Should -Be 1
     $d[0].Check | Should -Be 'budget'
     $d[0].Status | Should -Be 'WARN'
   }
-  It 'fails, per component, for an action not built yet' {
-    $r = @(Get-LwPlanSummary -Component ProfileUnity, FlexApp -Action Promote)
+  It 'fails, per component, for an action that is not applicable' {
+    $r = @(Get-LwPlanSummary -Component Stratusphere, CommandCTRL -Action Promote)
     $r.Count | Should -Be 2
-    $r[0].Detail | Should -Match 'not built yet'
-    @(Get-LwPlanSummary -Component Stratusphere -Action Deploy | Where-Object Status -eq 'FAIL').Count | Should -Be 1
+    $r[0].Detail | Should -Match 'not applicable'
+    @(Get-LwPlanSummary -Component FlexApp -Action Configure | Where-Object Status -eq 'FAIL').Count | Should -Be 1
   }
 }
 
@@ -474,10 +481,94 @@ Describe 'Get-LwRunCommandResult' {
   }
 }
 
+Describe 'Get-LwHostPlan' {
+  It 'respects the budget lock by starting nothing and undraining nothing (DN-H1)' {
+    $hosts = @([pscustomobject]@{ Name = 'vdpool/vm-sh0'; AllowNewSession = $false; Sessions = 0; ConfiguredVersion = '' })
+    $vms = @([pscustomobject]@{ Name = 'vm-sh0'; PowerState = 'VM deallocated'; Tags = @{} })
+    $plan = @(Get-LwHostPlan -SessionHost $hosts -Vm $vms -Action Configure -BudgetLockActive $true)
+    $plan[0].Action | Should -Be 'SkipBudgetLock'
+    $plan[0].NeedsStart | Should -BeFalse
+    $plan[0].UndrainAfter | Should -BeFalse
+  }
+  It 'starts a deallocated VM, drains an active host and restores both afterwards, while preserving external drains (lesson 0026, DN-H1)' {
+    $hosts = @(
+      [pscustomobject]@{ Name = 'vdpool/vm-sh0'; AllowNewSession = $true; Sessions = 0; ConfiguredVersion = '' }
+      [pscustomobject]@{ Name = 'vdpool/vm-sh1'; AllowNewSession = $false; Sessions = 0; ConfiguredVersion = '' }
+    )
+    $vms = @(
+      [pscustomobject]@{ Name = 'vm-sh0'; PowerState = 'VM deallocated'; Tags = @{} }
+      [pscustomobject]@{ Name = 'vm-sh1'; PowerState = 'VM running'; Tags = @{} }
+    )
+    $plan = @(Get-LwHostPlan -SessionHost $hosts -Vm $vms -Action Configure -HoldUnconfigured)
+    $plan[0].NeedsStart | Should -BeTrue
+    $plan[0].RestoreStopAfter | Should -BeTrue
+    $plan[0].DrainAction | Should -Be 'DrainAndTag'
+    $plan[0].UndrainAfter | Should -BeTrue
+    $plan[0].HoldTag | Should -Be 'liquidware-hold'
+    $plan[1].NeedsStart | Should -BeFalse
+    $plan[1].DrainAction | Should -Be 'Preserve'
+    $plan[1].UndrainAfter | Should -BeFalse
+  }
+}
+
+Describe 'Get-LwConfigPromotePlan' {
+  BeforeAll { $script:sha = 'a' * 64 }
+  It 'passes a valid staged export with no FSLogix overlap and routes QA to <config>-qa' {
+    $exp = [pscustomobject]@{ timestamp = '20261028T120000Z'; iniSha256 = $script:sha; rules = @('rule1'); portabilityPaths = @('AppData\Roaming\Notepad++') }
+    $p = Get-LwConfigPromotePlan -ConfigName default -Timestamp '20261028T120000Z' -StagedIniSha256 $script:sha -PlainTextExport $exp -Ring QA
+    $p.Ready | Should -BeTrue
+    $p.TargetFolder | Should -Be 'default-qa'
+    $p.RenameOrder | Should -Be @('client.net.xml', 'default.ini')
+  }
+  It 'refuses a missing export, a mismatched hash, an empty config, or an FSLogix path overlap (DN-C4, tier H1)' {
+    (Get-LwConfigPromotePlan -ConfigName default -Timestamp '20261028T120000Z' -StagedIniSha256 $script:sha).Ready | Should -BeFalse
+    $badOverlap = [pscustomobject]@{ timestamp = '20261028T120000Z'; iniSha256 = $script:sha; rules = @('r1'); portabilityPaths = @('AppData\Local\Microsoft\Teams\Cache', 'AppData\Local\Packages\App1') }
+    $p = Get-LwConfigPromotePlan -ConfigName default -Timestamp '20261028T120000Z' -StagedIniSha256 $script:sha -PlainTextExport $badOverlap -Ring All
+    $p.Ready | Should -BeFalse
+    @($p.Result | Where-Object Check -eq 'promote-fslogix-overlap').Count | Should -Be 2
+  }
+}
+
+Describe 'Get-LwAssignmentConflict' {
+  It 'passes when each application is in one assignment system and fails when duplicated (tier H5)' {
+    (Get-LwAssignmentConflict -AvdAppAttach @('app1') -ProfileUnityFlexApp @('app2') -NativeMsix @('app3'))[0].Status | Should -Be 'PASS'
+    $r = @(Get-LwAssignmentConflict -AvdAppAttach @('NotepadPP') -ProfileUnityFlexApp @('notepadpp'))
+    $r[0].Status | Should -Be 'FAIL'
+    $r[0].Detail | Should -Match 'AvdAppAttach, ProfileUnityFlexApp'
+  }
+}
+
+Describe 'Get-LwCostEstimate' {
+  It 'builds cost lines from retail meters or marks offline lines unpriced, with the budget warning' {
+    $est = Get-LwCostEstimate -Component ProfileUnity, Stratusphere -Portability -Packaging -Backup -Meter @([pscustomobject]@{ Sku = 'Standard_D2as_v5'; UnitPrice = 0.096; CurrencyCode = 'USD'; UnitOfMeasure = '1 Hour' })
+    $est.Warning.Check | Should -Be 'budget'
+    ($est.Lines | Where-Object Sku -eq 'Standard_D2as_v5' | Select-Object -First 1).Priced | Should -BeTrue
+    ($est.Lines | Where-Object Sku -eq 'Premium_LRS' | Select-Object -First 1).Priced | Should -BeFalse
+  }
+}
+
+Describe 'Get-LwStratusphereWindowCheck and Test-LwInstrumentReport' {
+  It 'checks the 28-day assessment window tag and warns 7 days before expiry' {
+    $now = [datetime]::Parse('2026-10-28T00:00:00Z').ToUniversalTime()
+    (Get-LwStratusphereWindowCheck -Now $now).Status | Should -Be 'INFO'
+    (Get-LwStratusphereWindowCheck -WindowEnd '2026-11-20' -Now $now).Status | Should -Be 'PASS'
+    (Get-LwStratusphereWindowCheck -WindowEnd '2026-11-02' -Now $now).Status | Should -Be 'WARN'
+    (Get-LwStratusphereWindowCheck -WindowEnd '2026-10-20' -Now $now).Status | Should -Be 'FAIL'
+  }
+  It 'validates reports against contracts/schemas/stratusphere-instrument.schema.json (C16)' {
+    $ok = [pscustomobject]@{ schemaVersion = 'stratusphere-instrument/v1'; reportKind = 'appliance'; action = 'Check' }
+    (Test-LwInstrumentReport -Report $ok).IsValid | Should -BeTrue
+    $bad = [pscustomobject]@{ schemaVersion = 'v0'; reportKind = 'other' }
+    (Test-LwInstrumentReport -Report $bad).IsValid | Should -BeFalse
+  }
+}
+
 Describe 'Entry points' {
-  It 'carry the personal-project notice near the top' {
-    foreach ($f in 'scripts/Deploy-LiquidwareTier.ps1', 'scripts/LiquidwareTier.psm1', 'scripts/Publish-LiquidwareMedia.ps1', 'scripts/Set-LiquidwareSecret.ps1') {
-      (Get-Content (Join-Path $script:root $f) -TotalCount 8) -join "`n" | Should -Match 'Personal project, not for production use' -Because $f
+  It 'carry the personal-project notice near the top and are pure ASCII' {
+    foreach ($f in 'scripts/Deploy-LiquidwareTier.ps1', 'scripts/LiquidwareTier.psm1', 'scripts/Publish-LiquidwareMedia.ps1', 'scripts/Set-LiquidwareSecret.ps1', 'scripts/Sync-LiquidwareHosts.ps1', 'scripts/Publish-ProfileUnityConfig.ps1', 'scripts/Publish-FlexAppPackage.ps1', 'scripts/Set-FlexAppAssignment.ps1') {
+      $full = Join-Path $script:root $f
+      [System.IO.File]::ReadAllBytes($full) | Where-Object { $_ -gt 127 } | Should -BeNullOrEmpty -Because $f
+      (Get-Content $full -TotalCount 8) -join "`n" | Should -Match 'Personal project, not for production use' -Because $f
     }
   }
 }

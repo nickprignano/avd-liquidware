@@ -56,7 +56,8 @@ param(
   [switch] $Force,
   # Cleanup of the Hub or Database: remove them although they hold the only copy of the assessment
   # data (decision 0016 in avd-second-brain). -Force never implies it.
-  [switch] $DiscardLastCopy
+  [switch] $DiscardLastCopy,
+  [string] $OutputPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -423,10 +424,10 @@ switch ($Action) {
   }
 }
 
-$outDir = Join-Path $repoRoot 'output'
+$outDir = $(if ($OutputPath) { $OutputPath } else { Join-Path $repoRoot 'output' })
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $report = Join-Path $outDir ("stratusphere-{0}-{1:yyyyMMdd-HHmmss}.json" -f $Action.ToLower(), (Get-Date))
-[pscustomobject]@{ action = $Action; resourceGroup = $rgName; roles = $Role; results = $results } | ConvertTo-Json -Depth 5 | Set-Content -Path $report
+[pscustomobject]@{ schemaVersion = 'stratusphere-instrument/v1'; reportKind = 'appliance'; action = $Action; resourceGroup = $rgName; roles = $Role; results = $results } | ConvertTo-Json -Depth 5 | Set-Content -Path $report
 
 $summary = Get-SsuxApplianceSummary -Result $results
 Write-Host ''

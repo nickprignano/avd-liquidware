@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/nickprignano/avd-liquidware/contracts/schemas/stratusphere-instrument.schema.json",
+  "title": "Stratusphere UX Instrument Report (stratusphere-instrument/v1)",
+  "description": "Contract C16 schema for operator reports emitted by Test-StratusphereReadiness.ps1, Deploy-Stratusphere.ps1, and Deploy-CidKey.ps1.",
+  "type": "object",
+  "required": [
+    "schemaVersion",
+    "reportKind"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "const": "stratusphere-instrument/v1"
+    },
+    "reportKind": {
+      "type": "string",
+      "enum": [
+        "preflight-manifest",
+        "appliance",
+        "cid-rollout"
+      ]
+    },
+    "tool": {
+      "type": "string"
+    },
+    "action": {
+      "type": "string"
+    },
+    "verdict": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "FAIL"
+      ]
+    },
+    "resourceGroup": {
+      "type": "string"
+    },
+    "hubAddress": {
+      "type": "string"
+    },
+    "roles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "counts": {
+      "type": "object"
+    },
+    "inputs": {
+      "type": "object"
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "planned": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "outcomes": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    }
+  },
+  "additionalProperties": true
+}
