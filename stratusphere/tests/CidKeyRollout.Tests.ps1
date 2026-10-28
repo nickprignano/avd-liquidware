@@ -129,5 +129,7 @@ Describe 'Agent script' {
       Rules        = @{ PSUseCompatibleSyntax = @{ Enable = $true; TargetVersions = @('5.1') } }
     }
     $r | Should -BeNullOrEmpty
+    (Get-Command (Join-Path $script:root 'scripts/ops/Deploy-CidKey.ps1')).Parameters.Keys | Should -Contain 'OutputPath'
+    (Get-Content (Join-Path $script:root 'scripts/ops/Deploy-CidKey.ps1') -Raw) | Should -Match "schemaVersion = 'stratusphere-instrument/v1'"
   }
 }

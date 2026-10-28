@@ -47,7 +47,8 @@ param(
   [string] $InstallerUrl = '',
   [string] $InstallerSha256 = '',
   [switch] $Force,
-  [ValidateRange(1, 32)] [int] $ThrottleLimit = 8
+  [ValidateRange(1, 32)] [int] $ThrottleLimit = 8,
+  [string] $OutputPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -138,10 +139,10 @@ $outcomes = @($raw | ForEach-Object { Get-SsuxCidRunOutcome -Name $_.Name -Outpu
 Write-Host ''
 foreach ($o in $outcomes) { Write-Host ("{0,-18} {1,-24} {2,-12} {3}" -f $o.Status, $o.Name, $o.Version, $o.Detail) }
 
-$outDir = Join-Path $repoRoot 'output'
+$outDir = $(if ($OutputPath) { $OutputPath } else { Join-Path $repoRoot 'output' })
 New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 $report = Join-Path $outDir ("cid-rollout-{0:yyyyMMdd-HHmmss}.json" -f (Get-Date))
-[pscustomobject]@{ action = $Action; hubAddress = $HubAddress; planned = $plan; outcomes = $outcomes } |
+[pscustomobject]@{ schemaVersion = 'stratusphere-instrument/v1'; reportKind = 'cid-rollout'; action = $Action; hubAddress = $HubAddress; planned = $plan; outcomes = $outcomes } |
   ConvertTo-Json -Depth 5 | Set-Content -Path $report
 Write-Host ''
 Write-Host "Report: $report"

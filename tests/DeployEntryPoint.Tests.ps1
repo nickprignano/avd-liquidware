@@ -108,7 +108,7 @@ Describe 'Deploy-LiquidwareTier.ps1 -Action Cleanup' {
   }
 
   It 'fails an action that is not built before reading or changing anything' {
-    & $script:entry -NamePrefix avdlz -Environment dev -Component Stratusphere -Action Cleanup -ReportDirectory $TestDrive
+    & $script:entry -NamePrefix avdlz -Environment dev -Component Stratusphere -Action Promote -ReportDirectory $TestDrive
     $LASTEXITCODE | Should -Be 1
     Should -Invoke Get-AzResourceGroup -Times 0
     Should -Invoke Remove-AzResourceGroup -Times 0

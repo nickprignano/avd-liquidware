@@ -1,25 +1,20 @@
 #requires -Version 7.4
 <#
 .SYNOPSIS
-  Deploys ProfileUnity, FlexApp and Stratusphere against an existing avd-landing-zone landing zone.
+  Deploys ProfileUnity, FlexApp, Stratusphere and CommandCTRL against an existing avd-landing-zone landing zone.
   Personal project, not for production use. Provided as is, without warranty of any kind. Not affiliated with the author's employer, with Liquidware or with Microsoft.
 
 .DESCRIPTION
   One entry point for the whole tier (docs/deploy-spec.md). -Component picks what, -Action what to do:
-    Plan     (default) what would change. Changes nothing.
-    Check    what exists and whether it is healthy. Ends with RESULT PASS or FAIL.
-    Deploy   ProfileUnity and FlexApp: Plan, then (after you confirm) the template, then the console
-             download and hash check by Run Command when output/media.lock.json has the console.
-    Cleanup  ProfileUnity and FlexApp: the tier peering and DNS links on the landing zone, then the
-             tier resource group; then teardown evidence. Asks first; -Force skips; -WhatIf lists.
-    Configure, Promote, Fix   built slice by slice (deploy-spec section 15).
-
-  Built so far (slices B1 to B3 and Deploy/Cleanup): the landing zone discovery, the tier address
-  check, for Stratusphere the parameters its own scripts get when pointed at this landing zone and,
-  for ProfileUnity and FlexApp, the template (network, Key Vault, config, packages and media
-  accounts, the console VM and its identity's roles), whose what-if fails on any change to the
-  landing zone outside deploy-spec section 4. Installers go up with Publish-LiquidwareMedia.ps1,
-  the license string with Set-LiquidwareSecret.ps1. Hosts come in slice B4.
+    Plan       (default) what would change. Changes nothing.
+    Check      what exists and whether it is healthy. Ends with RESULT PASS or FAIL.
+    Deploy     ProfileUnity and FlexApp: Plan, then (after you confirm) the template, then the console
+               download and hash check by Run Command when output/media.lock.json has the console.
+    Configure  session hosts via drained Run Command (Sync-LiquidwareHosts.ps1).
+    Promote    staged ProfileUnity configuration or FlexApp assignment on -Ring QA|All.
+    Fix        Check, then repairs what it can.
+    Cleanup    removes the tier peering and DNS links on the landing zone, then the tier resource group;
+               then teardown evidence. Asks first; -Force skips; -WhatIf lists.
 
   Plan and Check are read-only. Every action writes a JSON report to output/ (git-ignored).
   What-if needs the Bicep CLI (Cloud Shell has it).
@@ -50,7 +45,12 @@ param(
   # Cleanup: remove the tier resource group although it holds the only copy of the tier's data
   # (decision 0016 in avd-second-brain). -Force never implies it.
   [switch] $DiscardLastCopy,
-  [switch] $Bastion
+  [switch] $Bastion,
+  [switch] $Portability,
+  [switch] $ApplicationRestrictions,
+  [switch] $Packaging,
+  [ValidateSet('QA', 'All')] [string] $Ring = 'QA',
+  [string] $WindowEnd = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -76,7 +76,7 @@ $context = Get-AzContext
 if (-not $context) { Write-Host 'Not signed in. Run Connect-AzAccount (Cloud Shell is already signed in).'; exit 2 }
 
 $names = Get-LwName -NamePrefix $NamePrefix -Environment $Environment
-Write-Host "Subscription: $($context.Subscription.Name)   Landing zone: $($names.Base)   Components: $($Component -join ', ')   Action: $Action"
+Write-Host "Subscription: $($context.Subscription.Name)   Landing zone: $($names.Base)   Components: $($Component -join ', ')   Action: $Action   Ring: $Ring"
 
 $results = [System.Collections.Generic.List[object]]::new()
 function Add-Result($r) {
@@ -93,7 +93,7 @@ function Complete-Run {
   # Written under -WhatIf too: the report is the record of what was listed.
   if (-not (Test-Path $out)) { $null = New-Item -ItemType Directory -Path $out -Force -WhatIf:$false }
   $file = Join-Path $out ("{0}-{1}-{2}.json" -f $Action.ToLower(), $names.Base, (Get-Date -AsUTC -Format 'yyyyMMddTHHmmssZ'))
-  [pscustomobject]@{ action = $Action; landingZone = $names.Base; components = $Component; at = (Get-Date -AsUTC -Format o); results = $results } |
+  [pscustomobject]@{ action = $Action; landingZone = $names.Base; components = $Component; ring = $Ring; at = (Get-Date -AsUTC -Format o); results = $results } |
     ConvertTo-Json -Depth 5 | Set-Content -Path $file -Encoding utf8NoBOM -WhatIf:$false
   Write-Host "Report: $file"
   $fails = @($results | Where-Object Status -eq 'FAIL')
@@ -110,7 +110,7 @@ function Confirm-Step {
   (Read-Host "$What on $Target. Type $Target to go ahead") -ceq $Target
 }
 
-# Actions not built for a component fail before anything is read or changed.
+# Actions not applicable to a component fail before anything is read or changed.
 $summary = @(Get-LwPlanSummary -Component $Component -Action $Action)
 if (@($summary | Where-Object Status -eq 'FAIL').Count -gt 0) {
   Add-Result $summary
@@ -200,6 +200,7 @@ if ($Component -contains 'Stratusphere' -and @($lz.Missing).Count -eq 0) {
   $ssux = Get-LwStratusphereArgument -LandingZone $lz
   $line = ($ssux.GetEnumerator() | ForEach-Object { if ($_.Value -is [bool]) { if ($_.Value) { "-$($_.Key)" } } else { "-$($_.Key) $($_.Value)" } }) -join ' '
   Add-Result (Get-LwCheckResult INFO 'stratusphere-arguments' "stratusphere/scripts/ops/Test-StratusphereReadiness.ps1 $line" -Category Stratusphere)
+  Add-Result (Get-LwStratusphereWindowCheck -WindowEnd $WindowEnd)
 }
 
 $profileUnity = @($Component | Where-Object { $_ -in 'ProfileUnity', 'FlexApp' }).Count -gt 0
@@ -226,13 +227,11 @@ if ($profileUnity -and $Action -in 'Plan', 'Deploy' -and @($results | Where-Obje
   $consoleVm = $null
   $licenseSecret = $null
   if ($groups -contains $names.TierGroup) {
-    # Not found is an answer here, and the Az cmdlets throw it as a terminating error.
     $vm = $(try { Get-AzVM -ResourceGroupName $names.TierGroup -Name $names.ConsoleVm -ErrorAction Stop } catch { $null })
     if ($vm) { $consoleVm = [pscustomobject]@{ Name = $vm.Name; PrincipalId = $(if ($vm.Identity) { $vm.Identity.PrincipalId } else { '' }) } }
     $vault = @(Get-AzResource -ResourceGroupName $names.TierGroup -ResourceType 'Microsoft.KeyVault/vaults') | Select-Object -First 1
     if ($vault) { $licenseSecret = $(try { Get-AzResource -ResourceId "$($vault.ResourceId)/secrets/lw-licstr" -ErrorAction Stop } catch { $null }) }
   }
-  # An earlier Cleanup leaves the tier vault soft-deleted under the same name; Deploy recovers it.
   $removed = @(Get-AzKeyVault -InRemovedState -ErrorAction SilentlyContinue | ForEach-Object {
       [pscustomobject]@{ VaultName = $_.VaultName; Location = $_.Location; ScheduledPurgeDate = $_.ScheduledPurgeDate }
     })
@@ -241,14 +240,15 @@ if ($profileUnity -and $Action -in 'Plan', 'Deploy' -and @($results | Where-Obje
   $state = Get-LwTierState -Console $consoleVm -LicenseSecret $licenseSecret
   Add-Result $state.Result
   if ($operator -and $users.ObjectId -and $avd.Count -eq 2 -and @($results | Where-Object Status -eq 'FAIL').Count -eq 0) {
-    # Only a new console gets a password; it lives in this process and in the tier Key Vault, nowhere else.
     $password = $(if (-not $state.ConsoleExists) { Get-LwGeneratedPassword } else { $null })
+    $pkgPassword = $(if ($Packaging) { Get-LwGeneratedPassword } else { $null })
+    $enableBackup = ($Environment -in 'test', 'prod')
     $params = Get-LwTemplateParameter -LandingZone $lz -TierAddressPrefix $TierAddressPrefix -UsersGroupObjectId $users.ObjectId -AvdServicePrincipalObjectId $avd `
-      -OperatorObjectId $operator.Id -TierState $state -ConsoleAdminPassword $password -Bastion:$Bastion
+      -OperatorObjectId $operator.Id -TierState $state -ConsoleAdminPassword $password -Bastion:$Bastion `
+      -Portability:$Portability -ApplicationRestrictions:$ApplicationRestrictions -Packaging:$Packaging -PackagingAdminPassword $pkgPassword -Backup:$enableBackup
     $templateParams = @{}
     foreach ($k in $params.Keys) {
       $v = $params[$k]
-      # The deployment cmdlets take secure parameters as plain strings; convert at the last moment.
       if ($v -is [securestring]) { $v = [System.Net.NetworkCredential]::new('', $v).Password }
       elseif ($null -eq $v) { $v = '' }
       $templateParams[$k] = $v
@@ -282,9 +282,10 @@ if ($profileUnity -and $Action -in 'Plan', 'Deploy' -and @($results | Where-Obje
       }
     }
     $templateParams.Remove('consoleAdminPassword')
+    $templateParams.Remove('packagingAdminPassword')
     $password = $null
+    $pkgPassword = $null
 
-    # The console's installer, downloaded and hash-checked on the console by its own identity (deploy-spec section 6.1).
     if ($deployment -and $deployment.ProvisioningState -eq 'Succeeded') {
       if (-not $MediaLockPath) { $MediaLockPath = Join-Path $PSScriptRoot '../output/media.lock.json' }
       $lock = $(if (Test-Path -LiteralPath $MediaLockPath) { Get-Content -LiteralPath $MediaLockPath -Raw | ConvertFrom-Json } else { $null })

@@ -28,7 +28,7 @@ BeforeAll {
 
 Describe 'Host scripts' {
   It 'exist' {
-    $script:hostScripts.Count | Should -BeGreaterThan 0
+    $script:hostScripts.Count | Should -BeGreaterOrEqual 4
   }
   It 'use only Windows PowerShell 5.1 syntax and no modules' {
     foreach ($f in $script:hostScripts) {
@@ -42,11 +42,12 @@ Describe 'Host scripts' {
       (Get-Content $f.FullName -TotalCount 8) -join "`n" | Should -Match 'Personal project, not for production use' -Because $f.Name
     }
   }
-  It 'never write a token or a bearer header to output' {
+  It 'never write a token, a bearer header or MSI verbose logging to output' {
     foreach ($f in $script:hostScripts) {
       $text = Get-Content $f.FullName -Raw
-      $text | Should -Not -Match 'Write-(Output|Host|Verbose|Information)[^\r\n]*\$(Token|response|headers)' -Because $f.Name
+      $text | Should -Not -Match 'Write-(Output|Host|Verbose|Information)[^\r\n]*\$(Token|response|headers|licValue|secResponse)' -Because $f.Name
       $text | Should -Not -Match 'Start-Transcript' -Because $f.Name
+      $text | Should -Not -Match '(?i)/l\*v' -Because $f.Name
     }
   }
   It 'the grammar check catches what it is meant to' {
@@ -124,11 +125,91 @@ Describe 'Install-ProfileUnityConsole.ps1, run end to end with the network mocke
     Test-Path (Join-Path $dest 'console.exe.partial') | Should -BeFalse
   }
   It 'deletes a download whose hash does not match' {
-    # A failing run exits 1, so it runs in its own process with the network calls stubbed.
     $dest = Join-Path $TestDrive 'bad'
     $out = pwsh -NoProfile -Command "& { function Invoke-RestMethod { [pscustomobject]@{ access_token = 't' } }; function Invoke-WebRequest { param(`$Uri, `$Headers, `$OutFile, [switch] `$UseBasicParsing) [System.IO.File]::WriteAllBytes(`$OutFile, [byte[]] (9, 9, 9)) }; & '$($script:script)' -MediaAccountName stabc -Blob 'ProfileUnityConsole/6.9.5/console.exe' -Sha256 '$($script:sha)' -Destination '$dest'; exit `$LASTEXITCODE }"
     $LASTEXITCODE | Should -Be 1
     ($out | Where-Object { $_ -like 'LW-RESULT*' }) | Should -Match 'status=failed.*mismatch'
     @(Get-ChildItem $dest -ErrorAction SilentlyContinue) | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'Install-ProfileUnityClient.ps1' {
+  BeforeAll {
+    . (Join-Path $script:root 'scripts/host/Install-ProfileUnityClient.ps1')
+    $script:clientScript = Join-Path $script:root 'scripts/host/Install-ProfileUnityClient.ps1'
+    $script:payload = [byte[]] (11..42)
+    $script:sha = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($script:payload)).Replace('-', '')
+  }
+  It 'installs, checks and uninstalls the client and reads lw-licstr without logging it' {
+    $dest = Join-Path $TestDrive 'client-dest'
+    $state = Join-Path $TestDrive 'client-state.json'
+    Mock Invoke-RestMethod {
+      if ($Uri -like '*lw-licstr*') { [pscustomobject]@{ value = 'super-secret-licstr' } }
+      else { [pscustomobject]@{ access_token = 'tok-1' } }
+    }
+    Mock Invoke-WebRequest { [System.IO.File]::WriteAllBytes($OutFile, [byte[]] (11..42)) }
+    $out = & $script:clientScript -MediaAccountName stabc -Blob 'ProfileUnityClient/6.9.5/client.exe' -Sha256 $script:sha `
+      -KeyVaultName kvavdlzdevlw123 -ConfigSharePath '\\stcfg.file.core.windows.net\lwconfig\default' -Destination $dest -StateFile $state
+    ($out -join "`n") | Should -Match 'LW-RESULT status=installed'
+    ($out -join "`n") | Should -Not -Match 'super-secret-licstr'
+    $chk = & $script:clientScript -Mode Check -StateFile $state
+    ($chk -join "`n") | Should -Match 'LW-RESULT status=verified'
+    $un = & $script:clientScript -Mode Uninstall -StateFile $state
+    ($un -join "`n") | Should -Match 'LW-RESULT status=uninstalled'
+    Test-Path $state | Should -BeFalse
+  }
+}
+
+Describe 'Install-CommandCtrlAgent.ps1' {
+  BeforeAll {
+    . (Join-Path $script:root 'scripts/host/Install-CommandCtrlAgent.ps1')
+    $script:cctrlScript = Join-Path $script:root 'scripts/host/Install-CommandCtrlAgent.ps1'
+    $script:payload = [byte[]] (21..52)
+    $script:sha = [System.BitConverter]::ToString([System.Security.Cryptography.SHA256]::Create().ComputeHash($script:payload)).Replace('-', '')
+  }
+  It 'enforces SamplingIntervalSeconds >= 60 and zeroes command lines, window titles and browser URLs' {
+    { Get-CctrlPrivacySetting -IntervalSeconds 30 -HistoryDisabled 'true' } | Should -Throw '*at least 60*'
+    $p = Get-CctrlPrivacySetting -IntervalSeconds 60 -HistoryDisabled 'true'
+    $p.CaptureCommandLines | Should -Be 0
+    $p.CaptureWindowTitles | Should -Be 0
+    $p.CaptureBrowserUrls | Should -Be 0
+    $p.DisableHistory | Should -BeTrue
+  }
+  It 'installs, checks and uninstalls the agent with multi-session privacy policy' {
+    $dest = Join-Path $TestDrive 'cctrl-dest'
+    $state = Join-Path $TestDrive 'cctrl-state.json'
+    Mock Invoke-RestMethod { [pscustomobject]@{ access_token = 'tok-1' } }
+    Mock Invoke-WebRequest { [System.IO.File]::WriteAllBytes($OutFile, [byte[]] (21..52)) }
+    $out = & $script:cctrlScript -MediaAccountName stabc -Blob 'CommandCtrlAgent/1.2.0/agent.exe' -Sha256 $script:sha -Destination $dest -StateFile $state
+    ($out -join "`n") | Should -Match 'LW-RESULT status=installed'
+    $chk = & $script:cctrlScript -Mode Check -StateFile $state
+    ($chk -join "`n") | Should -Match 'LW-RESULT status=verified'
+    $un = & $script:cctrlScript -Mode Uninstall -StateFile $state
+    ($un -join "`n") | Should -Match 'LW-RESULT status=uninstalled'
+  }
+}
+
+Describe 'Publish-ProfileUnityStaging.ps1 and promote-config.sh' {
+  BeforeAll {
+    . (Join-Path $script:root 'scripts/host/Publish-ProfileUnityStaging.ps1')
+    $script:stageScript = Join-Path $script:root 'scripts/host/Publish-ProfileUnityStaging.ps1'
+  }
+  It 'uploads INI, client.net.xml and plain-text JSON export to staging with BlockBlob PUT' {
+    $deploy = Join-Path $TestDrive 'deploy'
+    $null = New-Item -ItemType Directory -Path $deploy -Force
+    Set-Content (Join-Path $deploy 'default.ini') -Value 'encrypted-ini'
+    Set-Content (Join-Path $deploy 'client.net.xml') -Value '<xml/>'
+    Set-Content (Join-Path $deploy 'default.json') -Value '{"version":"6.9.5"}'
+    Mock Invoke-RestMethod { [pscustomobject]@{ access_token = 'tok-stage' } }
+    $out = & $script:stageScript -MediaAccountName stabc -ConfigName default -Timestamp '20261028T120000Z' -DeployFolder $deploy
+    ($out -join "`n") | Should -Match 'LW-RESULT status=staged timestamp=20261028T120000Z iniSha256=[0-9a-f]{64}'
+  }
+  It 'promote-config.sh is pure ASCII, carries the disclaimer, and renames XML before INI' {
+    $sh = Join-Path $script:root 'scripts/runner/promote-config.sh'
+    [System.IO.File]::ReadAllBytes($sh) | Where-Object { $_ -gt 127 } | Should -BeNullOrEmpty
+    $text = Get-Content $sh -Raw
+    $text | Should -Match 'Personal project, not for production use'
+    $text | Should -Match 'for file in "client\.net\.xml" "\$\{CONFIG_NAME\}\.ini"'
+    $text | Should -Match '\.tmp'
   }
 }

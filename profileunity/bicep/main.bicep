@@ -5,7 +5,6 @@
 //
 // Native resources rather than Azure Verified Modules: the template tests check every role
 // assignment's scope and principal in the compiled template, which module wrappers hide.
-// The packaging VM comes with FlexApp (slice B5).
 
 targetScope = 'subscription'
 
@@ -68,6 +67,31 @@ param licenseStored bool = false
 
 @description('Daily console shutdown in dev and test, HHmm.')
 param autoShutdownTime string = '1900'
+
+@description('Create the portability share on the existing landing zone profiles storage account.')
+param enablePortability bool = false
+
+@description('Name of the existing landing zone profiles storage account (when enablePortability is true).')
+param profilesStorageAccountName string = ''
+
+@description('Resource group of the existing landing zone profiles storage account (when enablePortability is true).')
+param profilesResourceGroupName string = ''
+
+@description('Create the tier data collection rule for ProfileUnity application restriction events.')
+param enableApplicationRestrictions bool = false
+
+@description('Resource ID of the landing zone Log Analytics workspace (when enableApplicationRestrictions is true).')
+param logAnalyticsWorkspaceId string = ''
+
+@description('Deploy the on-demand FlexApp packaging VM in snet-lw-packaging.')
+param deployPackagingVm bool = false
+
+@description('Generated in memory by Deploy-LiquidwareTier.ps1 for the packaging VM only; written to the tier Key Vault.')
+@secure()
+param packagingAdminPassword string = ''
+
+@description('Create the tier Recovery Services vault with an Enhanced backup policy.')
+param enableBackup bool = false
 
 param tags object = {}
 
@@ -149,7 +173,7 @@ module consoleAccess 'modules/consoleAccess.bicep' = {
   }
 }
 
-// The only writes to landing zone resources in this slice: child resources, each removed by Cleanup
+// The only writes to landing zone resources: child resources, each removed by Cleanup
 // (deploy-spec section 4).
 module spoke 'modules/spoke.bicep' = {
   name: 'liquidware-spoke'
@@ -163,6 +187,54 @@ module spoke 'modules/spoke.bicep' = {
   }
 }
 
+module portability 'modules/portability.bicep' = if (enablePortability && !empty(profilesStorageAccountName)) {
+  name: 'liquidware-portability'
+  scope: resourceGroup(profilesResourceGroupName)
+  params: {
+    profilesStorageAccountName: profilesStorageAccountName
+  }
+}
+
+module dcr 'modules/dcr.bicep' = if (enableApplicationRestrictions && !empty(logAnalyticsWorkspaceId)) {
+  name: 'liquidware-dcr'
+  scope: tierGroup
+  params: {
+    location: location
+    tags: allTags
+    dcrName: 'dcr-${base}-liquidware'
+    logAnalyticsWorkspaceId: logAnalyticsWorkspaceId
+  }
+}
+
+module packaging 'modules/packaging.bicep' = if (deployPackagingVm) {
+  name: 'liquidware-packaging'
+  scope: tierGroup
+  params: {
+    location: location
+    tags: allTags
+    environment: environment
+    vmName: 'vm-${clean}lwpkg'
+    computerName: take('${clean}lwpkg', 15)
+    subnetId: '${tier.outputs.vnetId}/subnets/snet-lw-packaging'
+    privateIp: '10.61.0.36'
+    keyVaultName: tier.outputs.keyVaultName
+    mediaAccountName: media.outputs.accountName
+    packagesAccountName: tier.outputs.packagesAccountName
+    adminPassword: packagingAdminPassword
+    autoShutdownTime: autoShutdownTime
+  }
+}
+
+module backup 'modules/backup.bicep' = if (enableBackup) {
+  name: 'liquidware-backup'
+  scope: tierGroup
+  params: {
+    location: location
+    tags: allTags
+    vaultName: 'rsv-${base}-liquidware'
+  }
+}
+
 output resourceGroupName string = tierGroup.name
 output vnetId string = tier.outputs.vnetId
 output keyVaultName string = tier.outputs.keyVaultName
@@ -172,3 +244,4 @@ output opsIdentityId string = tier.outputs.opsIdentityId
 output mediaAccountName string = media.outputs.accountName
 output mediaBlobEndpoint string = media.outputs.blobEndpoint
 output consoleVmName string = 'vm-${clean}lwcon'
+output packagingVmName string = 'vm-${clean}lwpkg'

@@ -174,5 +174,7 @@ Describe 'Get-SsuxRandomPassword and summary' {
   It 'fails when any check failed' {
     (Get-SsuxApplianceSummary -Result @([pscustomobject]@{ Status = 'PASS' }, [pscustomobject]@{ Status = 'WARN' })).Result | Should -Be 'PASS'
     (Get-SsuxApplianceSummary -Result @([pscustomobject]@{ Status = 'FAIL' })).Result | Should -Be 'FAIL'
+    (Get-Command (Join-Path $script:root 'scripts/ops/Deploy-Stratusphere.ps1')).Parameters.Keys | Should -Contain 'OutputPath'
+    (Get-Content (Join-Path $script:root 'scripts/ops/Deploy-Stratusphere.ps1') -Raw) | Should -Match "schemaVersion = 'stratusphere-instrument/v1'"
   }
 }

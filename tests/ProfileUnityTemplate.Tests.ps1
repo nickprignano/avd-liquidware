@@ -185,7 +185,7 @@ Describe 'Console' {
   }
   It 'has Trusted Launch and encryption at host, like every VM in the template' {
     $vms = @($script:all | Where-Object { $_.Type -eq 'Microsoft.Compute/virtualMachines' -and -not $_.Resource['existing'] })
-    $vms.Count | Should -Be 1
+    $vms.Count | Should -Be 2
     foreach ($v in $vms) {
       $sp = $v.Resource['properties']['securityProfile']
       $sp['securityType'] | Should -Be 'TrustedLaunch'
@@ -305,6 +305,92 @@ Describe 'Private endpoints' {
     $e[1]['zoneId'] | Should -Be "[parameters('fileDnsZoneId')]"
     $e[2]['zoneId'] | Should -Be "[parameters('fileDnsZoneId')]"
     @($script:all | Where-Object Type -eq 'Microsoft.Network/privateEndpoints/privateDnsZoneGroups').Count | Should -Be 1
+  }
+}
+
+Describe 'Portability share' {
+  BeforeAll {
+    $script:portabilityModule = Get-Module 'liquidware-portability'
+    $script:portabilityShare = (Get-ModuleResource 'liquidware-portability' | Where-Object Type -eq 'Microsoft.Storage/storageAccounts/fileServices/shares').Resource
+  }
+  It 'is opt-in and deploys a 100 GiB portability share on the existing profiles storage account' {
+    $script:main['parameters']['enablePortability']['defaultValue'] | Should -BeFalse
+    $script:portabilityModule['condition'] | Should -Be "[and(parameters('enablePortability'), not(empty(parameters('profilesStorageAccountName'))))]"
+    $script:portabilityModule['resourceGroup'] | Should -Be "[parameters('profilesResourceGroupName')]"
+    $script:portabilityShare['name'] | Should -Match "'portability'"
+    $script:portabilityShare['properties']['shareQuota'] | Should -Be 100
+    $script:portabilityShare['properties']['enabledProtocols'] | Should -Be 'SMB'
+  }
+}
+
+Describe 'Application restrictions DCR' {
+  BeforeAll {
+    $script:dcrModule = Get-Module 'liquidware-dcr'
+    $script:dcr = (Get-ModuleResource 'liquidware-dcr' | Where-Object Type -eq 'Microsoft.Insights/dataCollectionRules').Resource
+  }
+  It 'is opt-in and collects Windows Event Log application restriction events into Log Analytics' {
+    $script:main['parameters']['enableApplicationRestrictions']['defaultValue'] | Should -BeFalse
+    $script:dcrModule['condition'] | Should -Be "[and(parameters('enableApplicationRestrictions'), not(empty(parameters('logAnalyticsWorkspaceId'))))]"
+    $script:dcrModule['properties']['parameters']['dcrName']['value'] | Should -Be "[format('dcr-{0}-liquidware', variables('base'))]"
+    $script:dcr['kind'] | Should -Be 'Windows'
+    $script:dcr['properties']['dataSources']['windowsEventLogs'][0]['name'] | Should -Be 'lw-restrictions'
+    $script:dcr['properties']['destinations']['logAnalytics'][0]['workspaceResourceId'] | Should -Be "[parameters('logAnalyticsWorkspaceId')]"
+  }
+}
+
+Describe 'Packaging VM' {
+  BeforeAll {
+    $script:pkgModule = Get-Module 'liquidware-packaging'
+    $script:pkgVm = (Get-ModuleResource 'liquidware-packaging' | Where-Object Type -eq 'Microsoft.Compute/virtualMachines').Resource
+    $script:pkgNic = (Get-ModuleResource 'liquidware-packaging' | Where-Object Type -eq 'Microsoft.Network/networkInterfaces').Resource
+    $script:pkgRoles = @(Get-ModuleResource 'liquidware-packaging' | Where-Object Type -eq 'Microsoft.Authorization/roleAssignments')
+  }
+  It 'is opt-in, Windows 11 24H2 Enterprise single-session on Standard_D2as_v5 at static IP 10.61.0.36 with no public IP' {
+    $script:main['parameters']['deployPackagingVm']['defaultValue'] | Should -BeFalse
+    $script:pkgModule['condition'] | Should -Be "[parameters('deployPackagingVm')]"
+    $script:pkgModule['properties']['parameters']['vmName']['value'] | Should -Be "[format('vm-{0}lwpkg', variables('clean'))]"
+    $script:pkgModule['properties']['parameters']['privateIp']['value'] | Should -Be '10.61.0.36'
+    $script:pkgModule['properties']['parameters']['subnetId']['value'] | Should -Match "snet-lw-packaging"
+    $img = $script:pkgVm['properties']['storageProfile']['imageReference']
+    $img['publisher'] | Should -Be 'MicrosoftWindowsDesktop'
+    $img['offer'] | Should -Be 'windows-11'
+    $img['sku'] | Should -Be 'win11-24h2-ent'
+    $img['version'] | Should -Be 'latest'
+    $script:pkgVm['identity']['type'] | Should -Be 'SystemAssigned'
+    $ip = $script:pkgNic['properties']['ipConfigurations'][0]['properties']
+    $ip['privateIPAllocationMethod'] | Should -Be 'Static'
+    $ip.Keys | Should -Not -Contain 'publicIPAddress'
+  }
+  It 'grants its managed identity Storage Blob Data Reader on media and Storage File Data Privileged Contributor on appattach' {
+    $script:pkgRoles.Count | Should -Be 2
+    $byName = @{}
+    foreach ($r in $script:pkgRoles) { $byName[(Get-RoleName $r)] = $r.Resource }
+    $byName['Storage Blob Data Reader']['scope'] | Should -Match "'media'\)\]$"
+    $byName['Storage File Data Privileged Contributor']['scope'] | Should -Match "'appattach'\)\]$"
+  }
+  It 'shuts down daily outside prod and keeps its password in Key Vault' {
+    $s = (Get-ModuleResource 'liquidware-packaging' | Where-Object Type -eq 'Microsoft.DevTestLab/schedules').Resource
+    $s['condition'] | Should -Be "[not(equals(parameters('environment'), 'prod'))]"
+    $secret = (Get-ModuleResource 'liquidware-packaging' | Where-Object Type -eq 'Microsoft.KeyVault/vaults/secrets').Resource
+    $secret['name'] | Should -Match "'lw-packaging-password'"
+    $secret['properties']['value'] | Should -Be "[parameters('adminPassword')]"
+  }
+}
+
+Describe 'Backup vault' {
+  BeforeAll {
+    $script:backupModule = Get-Module 'liquidware-backup'
+    $script:vault = (Get-ModuleResource 'liquidware-backup' | Where-Object Type -eq 'Microsoft.RecoveryServices/vaults').Resource
+    $script:policy = (Get-ModuleResource 'liquidware-backup' | Where-Object Type -eq 'Microsoft.RecoveryServices/vaults/backupPolicies').Resource
+  }
+  It 'is opt-in and creates rsv-<base>-liquidware with an EnhancedPolicy' {
+    $script:main['parameters']['enableBackup']['defaultValue'] | Should -BeFalse
+    $script:backupModule['condition'] | Should -Be "[parameters('enableBackup')]"
+    $script:backupModule['properties']['parameters']['vaultName']['value'] | Should -Be "[format('rsv-{0}-liquidware', variables('base'))]"
+    $script:vault['properties']['publicNetworkAccess'] | Should -Be 'Disabled'
+    $script:policy['name'] | Should -Match "'EnhancedPolicy'"
+    $script:policy['properties']['backupManagementType'] | Should -Be 'AzureIaasVM'
+    $script:policy['properties']['policyType'] | Should -Be 'V2'
   }
 }
 
