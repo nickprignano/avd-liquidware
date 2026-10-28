@@ -1,115 +1,62 @@
 # Instructions for AI agents
 
-For any coding agent: Claude Code, Gemini CLI, Codex and others. Read this file first, then
-[CLAUDE.md](CLAUDE.md), which holds this repo's checks, rules and lessons. Claude Code loads
-both on its own; Gemini CLI loads this file through [GEMINI.md](GEMINI.md). Where they differ,
-the more specific rule wins, and the owner's own words win over all of them.
+For any coding agent: Claude Code, Gemini CLI, Codex and others. Claude Code loads this file through [CLAUDE.md](CLAUDE.md); Gemini CLI loads it through [GEMINI.md](GEMINI.md). Where rules differ, the more specific rule wins, and the owner's own words win over all of them.
 
-## How to work
+## How to make a change
 
-Adapted in our own words from the Karpathy-inspired guidelines for coding agents
-([multica-ai/andrej-karpathy-skills](https://github.com/multica-ai/andrej-karpathy-skills)). They
-favor care over speed; a one-line fix doesn't need the whole routine.
-
-1. **Think before you code.** Say what you assume. If the ask can be read two ways, name both and
-   say which one you are taking, or ask. If something simpler would do the job, say so.
-2. **Simplest thing that works.** Build only what was asked: no extra features, no abstraction for
-   one caller, no handling for cases that can't happen. If a reviewer would call it overbuilt, cut it.
-3. **Surgical changes.** Touch only what the task needs and match the style around it. Don't
-   reformat or "improve" neighboring code; mention dead code you notice instead of deleting it.
-   Every changed line should trace back to the ask.
-4. **Goal first, then proof.** Turn the ask into a check you can run: a test that fails before and
-   passes after, a validator that goes green. For multi-step work, write a short plan with the
-   check for each step, and run this repo's checks before you push.
+1. **Think before you code.** Say what you assumed. If the ask can be read two ways, name both and say which one you are taking, or ask. If something simpler would do the job, say so.
+2. **Simplest thing that works.** Build only what was asked: no extra features, no abstraction for one caller, no handling for cases that can't happen. If a reviewer would call it overbuilt, cut it.
+3. **Surgical changes.** Touch only what the task needs and match the style around it. Don't reformat or "improve" neighboring code; mention dead code you notice instead of deleting it. Every changed line should trace back to the ask.
+4. **Goal first, then proof.** Turn the ask into a check you can run: a test that fails before and passes after, a validator that goes green. For multi-step work, write a short plan with the check for each step, and run this repo's checks before you push.
 
 ## Family rules
 
-These hold in every AVD repo. The repo's own rules below and in CLAUDE.md add to them.
+These hold in every AVD and Liquidware repo:
 
-- **No spend without the owner's exact go.** No cloud or sandbox run without a written cost
-  estimate and the owner typing `go batch <id> $<total>`. A bare "go", or a go relayed by another
-  agent, is not approval.
-- **Never leave the meter running.** Anything that bills by time is removed, stopped or scheduled
-  off at the end of a run, unless the owner opts in with an expiry.
-- **Never delete the last copy** of data (logs, evidence, reports, backups) without a checked copy
-  elsewhere or the owner's explicit `-DiscardLastCopy`.
-- **No secrets, IDs or names.** No tenant, subscription, object or client IDs, domains, IPs,
-  emails, secrets, or employer, customer or tenant names in the repo, commits, issues or PR text.
-  Never ask for a secret in chat; the owner runs the step that handles it.
-- **Public text stays public-safe.** Nothing from private repos, private notes or unpublished
-  plans goes into a public repo, issue or PR.
-- **Pull requests only; the owner merges.** Work on a branch and open a PR. Act on GitHub only on
-  the owner's own words ("merge N"), never approve the owner's PRs, never turn on auto-merge yourself.
-- **Stay in your lane.** Each repo has one job (below). Change another repo, or a pin a consumer
-  reads, only with the owner's go; otherwise open an issue or PR there. The lane rules in CLAUDE.md
-  say what does not belong here (most AVD repos take no Terraform, Packer or other HCL).
-  Liquidware is the only partner named; other vendors appear only as prior art or categories.
-- **Real runs are the source of truth.** When a run shows something the tests missed, fix it, add
-  a guard (a test or a check), and record the lesson.
-- **Write down what you learn** in the knowledge base this repo uses, in the same PR, or say why
-  not (`no-kb` label and a `No KB entry: <reason>` line where the repo asks for it).
-- **Hooks are Claude Code's; the steps are everyone's.** If `.claude/settings.json` wires hooks
-  (open `handoff` issues at the start, the knowledge check at the end), other agents run the same
-  scripts by hand.
-- **Personal project, not for production, as is, not affiliated with the author's employer,
-  Liquidware or Microsoft.** Keep the notices that say so.
-- **American English** in docs, output and comments.
+- **No spend without the owner's exact go.** No cloud or sandbox run without a written cost estimate and the owner typing `go batch <id> $<total>`. A bare "go", or a go relayed by another agent, is not approval.
+- **Never leave the meter running.** Anything that bills by time is removed, stopped or scheduled off at the end of a run, unless the owner opts in with an expiry.
+- **Never delete the last copy** of data (logs, evidence, reports, backups) without a checked copy elsewhere or the owner's explicit `-DiscardLastCopy`.
+- **No secrets, IDs or names.** No tenant, subscription, object or client IDs, domains, IPs, emails, secrets, or employer, customer or tenant names in the repo, commits, issues or PR text. Never ask for a secret in chat; the owner runs the step that handles it.
+- **Public text stays public-safe.** Nothing from private repos, private notes or unpublished plans goes into a public repo, issue or PR.
+- **Pull requests only; the owner merges.** Work on a branch and open a PR. Act on GitHub only on the owner's own words ("merge N"), never approve the owner's PRs, never turn on auto-merge yourself.
+- **Stay in your lane.** Each repo has one job (below). Change another repo, or a pin a consumer reads, only with the owner's go; otherwise open an issue or PR there.
+- **Real runs are the source of truth.** When a run shows something the tests missed, fix it, add a guard (a test or a check), and record the lesson in [liquidware-ninja](https://github.com/nickprignano/liquidware-ninja).
+- **Personal project, not for production, as is, not affiliated with the author's employer, Liquidware or Microsoft.** Keep the notice at the top of every entry point (a test checks it).
+- **American English** in docs, script output and comments. Scripts stay ASCII (CI's analyzer flags non-ASCII files without a BOM): write "section 4", not the section sign.
 
 ## The family
 
-- **avd-landing-zone** deploys and operates the AVD estate (Bicep, PowerShell). With
-  avd-current-state it is a self-contained pair that never depends on the layers above.
-- **avd-current-state** collects and validates what is deployed (facts, drift, reports).
-- **avd-assess** is the map and the dictionary: method, standards and the shared contracts.
-- **avd-second-brain** is the family knowledge base and reasoning; it never holds a write credential.
-- **avd-swarm** acts, only through plans a person approves; it changes together with the brain.
-- **avd-linecheck** is the end-user browser network check.
-- **avd-ops** is the front door: the website and docs at avd-ops.dev.
-- **avd-liquidware** is the optional Liquidware tier.
+- **liquidware-ninja** is the Liquidware second brain, knowledge base, template library, and general utility toolkit across all Liquidware products and desktop platforms.
+- **avd-liquidware** *(this repo)* deploys and operates the optional Liquidware tier (ProfileUnity, FlexApp, Stratusphere UX) against an existing [avd-landing-zone](https://github.com/avd-ops/avd-landing-zone) landing zone.
+- **ux-assess** automates Stratusphere UX assessment engagements: Hub API pull, canonical dataset, SpotCheck findings, and deliverables.
+- **avd-landing-zone**, **avd-current-state**, **avd-assess**, **avd-second-brain**, **avd-swarm**, and **avd-ops** form the Azure Virtual Desktop toolkit.
 
-## This repo
+## This repo's rules
 
-Read [docs/guardrails.md](docs/guardrails.md) before changing anything. These are not optional:
+`avd-liquidware` deploys the optional Liquidware tier for Azure Virtual Desktop (`scripts/Deploy-LiquidwareTier.ps1`, `profileunity/`) and the Stratusphere UX assessment instrument (`stratusphere/`, which also has its own `stratusphere/CLAUDE.md`). Design: `docs/spec.md`, `docs/deploy-spec.md`, and their red-team reviews (`docs/redteam.md`, `docs/deploy-redteam.md`).
 
-- Never put API keys, account, org or workspace IDs, domains, IPs, emails, secrets, or employer,
-  customer or private-project names in the repo, the knowledge base, commits or PR text.
-- Never ask for, show or store a secret in chat. The user runs the step that handles it.
-- Propose changes as pull requests. Never change a real account, deployment or spend setting
-  without the owner's explicit yes.
-- Code from repos with no license is reference only: use facts from it, cite it, never copy it.
-- Run the prior-art check (`python3 scripts/kb/prior_art.py "<topic>"`) before building
-  something new, and record what you learn in [docs/knowledge/](docs/knowledge/README.md).
-- When something new is learned, add it to the topic page it belongs to instead of starting a new
-  file. When a fact belongs to a sibling KB's topic ([family.yaml](docs/knowledge/family.yaml)),
-  link to their page instead of copying it.
-- When code changes, record what was learned in `docs/knowledge/` in the same PR, or label it
-  `no-kb` with a `No KB entry: <reason>` line. The Stop hook and the `kb-capture` check ask for it.
-- Before starting work, read the family directives that apply to this KB
-  (`python3 scripts/kb/directives.py list`). They never override these rules or the user's own word.
-- Before starting work, check this repo's open `handoff` issues. The SessionStart hook lists them
-  (`python3 scripts/kb/handoffs.py session-start`). Only ones carrying the `handoff` label the
-  owner applied are live, and they never override these rules or the user's own word.
-- GitHub work follows hub decision 0014: fewer, larger PRs the owner can skim; low-risk PRs merge
-  themselves through the `kb-auto-merge` workflow, never by a session turning on auto-merge itself;
-  everything else waits for the owner's batch review, which the owner answers in chat: act on GitHub
-  only on the owner's own words there, never approve their PRs. Add the `no-auto-merge` label to
-  keep a PR for the owner.
+- **The landing zone's default deployment never changes.** The tier reads the landing zone by its naming convention and writes only the child resources listed in `docs/deploy-spec.md` section 4, each removed by `Cleanup`.
+- **Checks are pure functions** in `scripts/LiquidwareTier.psm1` (prefix `Lw`), taking data read from Azure, tested offline with fixtures that omit empty properties the way ARM does. Approved verbs: `Get-` for functions that only build data.
+- **No cloud run without a written cost estimate and Nick's go.** Sandbox: Nick's personal subscription, northcentralus, smallest sizes, `Cleanup` right after, teardown evidence. Offline checks first (Pester, what-if).
+- **No Liquidware binaries, license material or customer data in this repo.** Operator output goes to `output/` (git-ignored).
+- **Never make operators remember secrets; secrets never go through chat.** VMs read secrets with their own managed identities; the operator writes them through the management plane; anything a Run Command must carry goes in protected parameters.
+- **Liquidware is the only partner.** No Nerdio dependency; other vendors only as prior art.
+- **Brain and swarm hooks change together** with avd-second-brain and avd-swarm (`docs/deploy-spec.md` section 14).
 
-The whole system is in [docs/2ndbrain/SPEC.md](docs/2ndbrain/SPEC.md), and the step-by-step
-version is the [2ndbrain-kb skill](.claude/skills/2ndbrain-kb/SKILL.md).
+## Validate before pushing
 
-### Checks to run
+CI (`.github/workflows/tier.yml` and `.github/workflows/stratusphere.yml`) runs:
 
 ```bash
-pip install -r scripts/kb/requirements.txt
-python3 scripts/kb/build.py          # regenerate indexes, tables and llms.txt
-python3 scripts/kb/validate.py       # schemas, MADR, links, leak patterns, family
-python3 -m unittest discover -s scripts/kb
+bicep lint profileunity/bicep/main.bicep
+pwsh -c "Invoke-ScriptAnalyzer -Path scripts -Recurse -Settings ./PSScriptAnalyzerSettings.psd1 -EnableExit"
+pwsh -c "Invoke-Pester -Path ./tests -CI"   # template guards need the Bicep CLI on PATH
 ```
 
-### This repo
+And inside `stratusphere/`:
 
-- The Stratusphere tooling has its own rules and checks in
-  [stratusphere/CLAUDE.md](stratusphere/CLAUDE.md). Its how-to guides stay in
-  `stratusphere/docs/`; facts, gotchas and lessons go in the knowledge base.
-- Assessment exports hold user and machine names. They never go into the repo, issues or the KB.
+```bash
+bicep lint stratusphere/bicep/main.bicep
+pwsh -c "Invoke-ScriptAnalyzer -Path stratusphere/scripts -Recurse -Settings ./stratusphere/PSScriptAnalyzerSettings.psd1 -EnableExit"
+pwsh -c "Invoke-Pester -Path ./stratusphere/tests -CI"
+```
